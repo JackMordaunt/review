@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"regexp"
@@ -71,6 +73,15 @@ type Finding struct {
 	// Fix is the concrete change suggested, which is what lets an agent act
 	// on the finding rather than reason about it again.
 	Fix string `json:"fix,omitempty"`
+	// Verified is what stands behind the finding. The deterministic checks
+	// and staticcheck verify themselves; a model's finding is verified when
+	// a second reading of the same evidence let it stand. A finding no
+	// second reading has seen is false until one has.
+	Verified bool `json:"verified"`
+	// ID is a stable short name for the finding: a hash of what it is about,
+	// not where it sits, so that a re-run of the same change names the same
+	// finding again and a loop can refer to one by name.
+	ID string `json:"id,omitempty"`
 }
 
 func (f Finding) String() string {
@@ -111,6 +122,16 @@ func Sort(findings []Finding) {
 		}
 		return cmp.Compare(a.Line, b.Line)
 	})
+}
+
+// identify gives a finding its short id. The line is left out of the hash:
+// lines move under edits that do not touch the finding, and an id that
+// changes with every re-run names nothing.
+func identify(f *Finding) {
+	h := sha256.Sum256([]byte(strings.Join([]string{
+		f.Job, f.Rule, f.File, f.Symbol, f.Message,
+	}, "\x00")))
+	f.ID = hex.EncodeToString(h[:])[:12]
 }
 
 // ignore matches the comment that dismisses a finding. It lives in the source

@@ -2,9 +2,6 @@ package main
 
 import (
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"strings"
 )
 
@@ -22,80 +19,6 @@ type Declared struct {
 
 func (d Declared) String() string {
 	return fmt.Sprintf("%s:%d: %s", d.File, d.Line, strings.TrimSpace(d.Text))
-}
-
-// Index reads every declaration in the repository. It is built by parsing
-// rather than by searching: a pattern over lines misses an indented constant
-// inside a block, which is exactly where a duplicated fact tends to live.
-func Index(root, rev string) ([]Declared, error) {
-	out, err := git(root, "ls-files", "*.go")
-	if err != nil {
-		return nil, err
-	}
-	var index []Declared
-	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
-		if name == "" || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		source, err := at(root, rev, name)
-		if err != nil {
-			continue
-		}
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, name, source, 0)
-		if err != nil {
-			continue
-		}
-		lines := strings.Split(string(source), "\n")
-		at := func(pos token.Pos) (int, string) {
-			line := fset.Position(pos).Line
-			if line-1 < 0 || line-1 >= len(lines) {
-				return line, ""
-			}
-			return line, lines[line-1]
-		}
-		for _, decl := range file.Decls {
-			switch d := decl.(type) {
-			case *ast.FuncDecl:
-				line, text := at(d.Pos())
-				index = append(index, Declared{Name: d.Name.Name, Kind: "func", File: name, Line: line, Text: text})
-			case *ast.GenDecl:
-				for _, spec := range d.Specs {
-					switch s := spec.(type) {
-					case *ast.TypeSpec:
-						line, text := at(s.Pos())
-						index = append(index, Declared{Name: s.Name.Name, Kind: "type", File: name, Line: line, Text: text})
-						// A struct's fields are declarations too, and a field
-						// is where a restated fact often sits.
-						if structure, ok := s.Type.(*ast.StructType); ok {
-							for _, field := range structure.Fields.List {
-								for _, ident := range field.Names {
-									line, text := at(ident.Pos())
-									index = append(index, Declared{Name: ident.Name, Kind: "field", File: name, Line: line, Text: text})
-								}
-							}
-						}
-					case *ast.ValueSpec:
-						for _, ident := range s.Names {
-							line, text := at(ident.Pos())
-							index = append(index, Declared{Name: ident.Name, Kind: kindOf(d.Tok), File: name, Line: line, Text: text})
-						}
-					}
-				}
-			}
-		}
-	}
-	return index, nil
-}
-
-func kindOf(tok token.Token) string {
-	switch tok {
-	case token.CONST:
-		return "const"
-	case token.VAR:
-		return "var"
-	}
-	return "value"
 }
 
 // Resembling returns the declarations whose names share a word with the one
@@ -135,9 +58,21 @@ func Resembling(index []Declared, symbol Symbol, limit int) []string {
 // cheapest signal that a fact has been written twice. It is a hint for the
 // shortlist, not a finding.
 func same(a, b Declared) bool {
-	_, left, okA := strings.Cut(a.Text, "=")
-	_, right, okB := strings.Cut(b.Text, "=")
+	_, left, okA := cutLiteral(a.Text)
+	_, right, okB := cutLiteral(b.Text)
 	return okA && okB && strings.TrimSpace(left) == strings.TrimSpace(right)
+}
+
+// cutLiteral takes the value half of a declaration line. Go and TypeScript
+// write `name = value`; Odin writes `name :: value`.
+func cutLiteral(text string) (string, string, bool) {
+	if _, right, ok := strings.Cut(text, "="); ok {
+		return text, right, true
+	}
+	if _, right, ok := strings.Cut(text, "::"); ok {
+		return text, right, true
+	}
+	return text, "", false
 }
 
 // split breaks a name into the words it is made of, so that Assemble finds
@@ -148,9 +83,17 @@ func split(name string) []string {
 		word  strings.Builder
 	)
 	for i, r := range name {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			words = append(words, word.String())
-			word.Reset()
+		// A capital starts a word; an underscore ends one, as snake_case
+		// languages put the next word after it.
+		if i > 0 && (r >= 'A' && r <= 'Z' || r == '_') {
+			if word.Len() > 0 {
+				words = append(words, word.String())
+				word.Reset()
+			}
+			if r != '_' {
+				word.WriteRune(r)
+			}
+			continue
 		}
 		word.WriteRune(r)
 	}

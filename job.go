@@ -75,6 +75,14 @@ func duplicationSubject(c *Change) string {
 		return ""
 	}
 	var b strings.Builder
+	// The pairs holding the same literal go first and alone. Buried among
+	// the resemblances a reading finds one of them and stops.
+	if twinned := twins(c); twinned != "" {
+		b.WriteString("Declarations this change adds that hold a value already declared elsewhere.\n")
+		b.WriteString("Judge every pair on this list.\n\n")
+		b.WriteString(twinned)
+		b.WriteString("\n")
+	}
 	b.WriteString("Each name the change adds, with existing declarations found by searching for its words.\n\n")
 	for _, s := range c.Symbols {
 		fmt.Fprintf(&b, "NEW  %s:%d  %s %s\n", s.File, s.Line, s.Kind, s.Name)
@@ -94,6 +102,23 @@ func duplicationSubject(c *Change) string {
 			fmt.Fprintf(&b, "       %s\n", line)
 		}
 		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// twins renders the declarations whose value already exists, in the order the
+// change declares them.
+func twins(c *Change) string {
+	var b strings.Builder
+	for _, s := range c.Symbols {
+		lines := c.Twins[s.Name]
+		if len(lines) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "  %s:%d  %s\n", s.File, s.Line, s.Signature)
+		for _, line := range lines {
+			fmt.Fprintf(&b, "      %s\n", strings.TrimSuffix(line, "   <- same value"))
+		}
 	}
 	return b.String()
 }

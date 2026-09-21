@@ -18,3 +18,11 @@ whether they are tidy. The question is whether they can fail.
 
 Report the specific assertion at fault, and what to assert instead. Ignore style,
 naming and table-versus-loop questions entirely.
+
+## Reading across languages
+
+A test body arrives whole however the language runs it: a Go `Test` function, a
+call to `test` or `it` in TypeScript, an `@(test)` procedure in Odin. The skip
+shapes differ with them (`t.Skip`, `test.skip`, a test returning early) but the
+rule does not: a test that checks nothing and reports success is a finding in
+each.

@@ -15,5 +15,9 @@ requires. Those assertions are the subject.
   version, no tool, no test that pins it.
 - `stale` — the comment describes behaviour the change itself has altered.
 
+These overlap. Where more than one fits, report the first that does and only that
+one: a comment gets one finding.
+
 A comment that is merely wordy is not a finding. Only judge assertions that could be
-false.
+false. A comment saying what the code in front of it does is never a claim, however
+confidently it says it.
