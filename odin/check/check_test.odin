@@ -12,6 +12,7 @@ import "../change"
 import "../finding"
 import "../frontend"
 import "../tree"
+import "../txt"
 
 
 // dyn is a dynamic array over the items given, for a change built in a
@@ -554,7 +555,7 @@ names_are_measured :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(
 		t,
-		fmt.tprint(split("parseHTTPRequest_now", context.temp_allocator)),
+		fmt.tprint(txt.split_words("parseHTTPRequest_now", context.temp_allocator)),
 		`["parse", "H", "T", "T", "P", "Request", "now"]`,
 	)
 }

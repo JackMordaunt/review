@@ -124,6 +124,12 @@ Change :: struct {
 	// index is every declaration in the repository at the end of the
 	// change, kept for the checks that judge new work against it.
 	index:      []Declared,
+	// candidates are existing names that resemble each new one, gathered
+	// by search rather than by the model; twins are the existing
+	// declarations holding the same literal as a new one, the shortest
+	// list worth reading.
+	candidates: map[string][]string,
+	twins:      map[string][]string,
 }
 
 max_diff :: 60000

@@ -121,6 +121,12 @@ encode_carries_the_contract :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(root["findings"].(json.Array)), 0)
 	testing.expect(t, !strings.contains(empty, "null"), "no list is null")
 	testing.expect(t, strings.contains(empty, `"findings": []`), "an empty list is one line")
+	testing.expect(
+		t,
+		!strings.contains(empty, `"truncated"`),
+		"a truncation that did not happen is left out",
+	)
+	testing.expect(t, strings.contains(out, `"truncated": true`))
 }
 
 @(test)

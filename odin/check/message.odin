@@ -13,6 +13,7 @@ import "vendor:zlib"
 
 import "../change"
 import "../finding"
+import "../txt"
 
 // min_entropy is the Shannon entropy, in bits per byte, under which a
 // message is one short phrase said over rather than a description of a
@@ -625,7 +626,7 @@ content_words :: proc(text: string, allocator := context.allocator) -> map[strin
 	out := make(map[string]bool, allocator)
 	for piece in fields(text, context.temp_allocator) {
 		for part in humps(piece, context.temp_allocator) {
-			w := depluralise(strings.to_lower(part, allocator))
+			w := txt.depluralise(strings.to_lower(part, allocator))
 			if len(w) > 2 && !stop_words[w] {
 				out[w] = true
 			}
@@ -652,15 +653,6 @@ humps :: proc(s: string, allocator := context.allocator) -> []string {
 		append(&out, s[start:])
 	}
 	return out[:]
-}
-
-// depluralise drops a trailing s, except where dropping it would leave
-// another: class stays class.
-depluralise :: proc(w: string) -> string {
-	if len(w) > 3 && strings.has_suffix(w, "s") && w[len(w) - 2] != 's' {
-		return w[:len(w) - 1]
-	}
-	return w
 }
 
 // frequencies counts, over the repository's subjects, in how many of them

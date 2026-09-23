@@ -169,27 +169,6 @@ set :: proc(words: string) -> map[string]bool {
 	return out
 }
 
-// split breaks a name into its words: a capital starts a word, an
-// underscore ends one, as snake_case languages put the next word after
-// it.
-split :: proc(name: string, allocator := context.allocator) -> []string {
-	words := make([dynamic]string, allocator)
-	start := 0
-	for i in 0 ..< len(name) {
-		c := name[i]
-		if i > 0 && ((c >= 'A' && c <= 'Z') || c == '_') {
-			if i > start {
-				append(&words, name[start:i])
-			}
-			start = i + 1 if c == '_' else i
-		}
-	}
-	if start < len(name) {
-		append(&words, name[start:])
-	}
-	return words[:]
-}
-
 // fields splits on anything that is not a letter or a digit.
 fields :: proc(s: string, allocator := context.allocator) -> []string {
 	out := make([dynamic]string, allocator)

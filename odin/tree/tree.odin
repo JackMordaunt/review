@@ -116,6 +116,27 @@ sources :: proc(t: Tree, allocator := context.allocator) -> (out: map[string][]b
 	return out, true
 }
 
+// line is one line of a file at the end of the change, trimmed, or empty
+// where the file or the line is not there.
+line :: proc(t: Tree, name: string, number: int, allocator := context.allocator) -> string {
+	if number < 1 {
+		return ""
+	}
+	data, ok := read(t, name, context.temp_allocator)
+	if !ok {
+		return ""
+	}
+	rest := string(data)
+	n := 0
+	for text in strings.split_lines_iterator(&rest) {
+		n += 1
+		if n == number {
+			return strings.clone(strings.trim_space(text), allocator)
+		}
+	}
+	return ""
+}
+
 // exists reports whether the tree holds the path as a file.
 exists :: proc(t: Tree, name: string) -> bool {
 	return os.is_file(path(t, name, context.temp_allocator))

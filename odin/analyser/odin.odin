@@ -4,6 +4,8 @@ import "core:encoding/json"
 import "core:os"
 import "core:strings"
 
+import "../txt"
+
 // odin_check type-checks each package the change touched with every vet
 // switch and the compiler's own style, and reads its JSON errors. The
 // compiler writes its JSON to stderr and exits non-zero when it has
@@ -83,7 +85,7 @@ Odin_Report :: struct {
 // object is taken from wherever it sits.
 parse_odin :: proc(tree_dir, out: string, allocator := context.allocator) -> []Diagnostic {
 	found := make([dynamic]Diagnostic, allocator)
-	raw, ok := object(out)
+	raw, ok := txt.object(out)
 	if !ok {
 		return found[:]
 	}

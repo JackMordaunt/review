@@ -325,16 +325,6 @@ split_json_objects :: proc(out: string, allocator := context.allocator) -> []str
 	return chunks[:]
 }
 
-// object is the outermost JSON object in a text that has prose around it.
-object :: proc(text: string) -> (string, bool) {
-	start := strings.index_byte(text, '{')
-	end := strings.last_index_byte(text, '}')
-	if start < 0 || end < start {
-		return "", false
-	}
-	return text[start:end + 1], true
-}
-
 // lines_of is a text's lines, for the tools that write one JSON object
 // per line.
 lines_of :: proc(text: string, allocator := context.temp_allocator) -> []string {

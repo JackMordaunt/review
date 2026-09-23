@@ -10,6 +10,7 @@ import "core:strings"
 
 import "../change"
 import "../finding"
+import "../txt"
 
 @(private = "file")
 predeclared: map[string]bool
@@ -81,7 +82,7 @@ stutter :: proc(sym: change.Symbol, out: ^[dynamic]finding.Finding) {
 	if sym.pkg == "" || sym.pkg == "main" || !sym.exported {
 		return
 	}
-	words := split(sym.name, context.temp_allocator)
+	words := txt.split_words(sym.name, context.temp_allocator)
 	if len(words) < 2 {
 		return
 	}
@@ -161,7 +162,7 @@ shadow :: proc(sym: change.Symbol, out: ^[dynamic]finding.Finding) {
 // the reader has to expand rather than read.
 abbreviated :: proc(sym: change.Symbol, out: ^[dynamic]finding.Finding) {
 	hit := make([dynamic]string, context.temp_allocator)
-	for word in split(sym.name, context.temp_allocator) {
+	for word in txt.split_words(sym.name, context.temp_allocator) {
 		if abbreviations[strings.to_lower(word, context.temp_allocator)] {
 			append(&hit, word)
 		}

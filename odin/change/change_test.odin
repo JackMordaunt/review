@@ -8,6 +8,7 @@ import "jfm:sh"
 
 import "../frontend"
 import "../tree"
+import "../txt"
 
 canned :: `diff --git a/a.go b/a.go
 index 1..2 100644
@@ -265,4 +266,71 @@ gather_of_nothing_staged_is_empty :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(c.files), 0)
 	testing.expect_value(t, c.diff, "")
 	testing.expect_value(t, c.message, "")
+}
+
+@(test)
+candidates_rank_by_shared_words :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	c := Change{}
+	c.symbols = make([dynamic]Symbol, context.temp_allocator)
+	append(
+		&c.symbols,
+		Symbol {
+			name = "IconEntrySize",
+			kind = "value",
+			file = "b.go",
+			line = 9,
+			signature = "const IconEntrySize = 16",
+		},
+	)
+	c.index = []Declared {
+		{
+			name = "EntrySize",
+			kind = "value",
+			file = "a.go",
+			line = 3,
+			text = "const EntrySize = 16",
+		},
+		{
+			name = "iconCount",
+			kind = "func",
+			file = "a.go",
+			line = 8,
+			text = "func iconCount() int {",
+		},
+		{
+			name = "unrelated",
+			kind = "value",
+			file = "a.go",
+			line = 1,
+			text = "const unrelated = 16",
+		},
+		{
+			name = "IconEntrySize",
+			kind = "value",
+			file = "b.go",
+			line = 9,
+			text = "const IconEntrySize = 16",
+		},
+	}
+	find_candidates(&c, context.temp_allocator)
+	twins := c.twins["IconEntrySize"]
+	testing.expect_value(t, len(twins), 2)
+	if len(twins) == 2 {
+		testing.expect_value(t, twins[0], "a.go:3: const EntrySize = 16   <- same value")
+	}
+	near := c.candidates["IconEntrySize"]
+	testing.expect_value(t, len(near), 4)
+	if len(near) == 4 {
+		testing.expect_value(t, near[2], "a.go:3: const EntrySize = 16")
+		testing.expect_value(t, near[3], "a.go:8: func iconCount() int {")
+	}
+	testing.expect(t, same("x = 3", "y  = 3 "))
+	testing.expect(t, same("A :: 3", "B = 3"))
+	testing.expect(t, !same("f()", "g()"))
+	testing.expect_value(
+		t,
+		fmt.tprint(txt.split_words("icoEntry_size")),
+		`["ico", "Entry", "size"]`,
+	)
 }

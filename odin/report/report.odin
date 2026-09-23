@@ -240,9 +240,10 @@ encode :: proc(env: Contract, allocator := context.allocator) -> (out: string, o
 }
 
 // compact writes an empty list as [] on one line, where the marshaller
-// leaves a blank line inside it.
+// leaves a blank line inside it, and leaves out a truncation that did not
+// happen, as the Go tool does.
 compact :: proc(text: string, allocator := context.allocator) -> string {
-	out := text
+	out, _ := strings.replace_all(text, "\n  \"truncated\": false,", "", context.temp_allocator)
 	for depth in 0 ..< 8 {
 		indent := strings.repeat("  ", depth, context.temp_allocator)
 		pattern := strings.concatenate({"[\n\n", indent, "]"}, context.temp_allocator)

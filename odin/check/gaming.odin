@@ -9,6 +9,7 @@ import "core:strings"
 
 import "../change"
 import "../finding"
+import "../txt"
 
 // rule_id is what a dismissal's rule id has to look like. The prose that
 // documents the mechanism writes placeholders (<rule>) and quoted
@@ -225,7 +226,7 @@ covered :: proc(deleted: string, spoken: []string) -> bool {
 // short leftovers left out.
 test_words :: proc(name: string, allocator := context.allocator) -> []string {
 	out := make([dynamic]string, allocator)
-	for part in split(name, context.temp_allocator) {
+	for part in txt.split_words(name, context.temp_allocator) {
 		for piece in strings.fields(part, context.temp_allocator) {
 			word := strings.to_lower(piece, allocator)
 			if len(word) < 3 {
