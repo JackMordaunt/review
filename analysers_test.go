@@ -6,7 +6,10 @@ package main
 // tool's output is read into the same shape.
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -278,5 +281,20 @@ func TestSemgrepConfig(t *testing.T) {
 	r.write(".semgrep.yml", "rules: []\n")
 	if got := semgrepConfig(r.Root); got != ".semgrep.yml" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestOdinCollectionsReadOlsJSON(t *testing.T) {
+	dir := t.TempDir()
+	if got := odinCollections(dir); got != nil {
+		t.Errorf("no ols.json: %v", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ols.json"), []byte(`{"collections":[{"name":"jfm","path":"../odin"},{"name":"abs","path":"/opt/abs"},{"name":""}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := odinCollections(dir)
+	want := []string{"-collection:jfm=" + filepath.Join(dir, "../odin"), "-collection:abs=/opt/abs"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

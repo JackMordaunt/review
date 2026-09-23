@@ -1,0 +1,152 @@
+package change
+
+import "core:fmt"
+import "core:os"
+import "core:path/filepath"
+import "core:testing"
+import "jfm:sh"
+
+import "../frontend"
+import "../tree"
+
+canned :: `diff --git a/a.go b/a.go
+index 1..2 100644
+--- a/a.go
++++ b/a.go
+@@ -1,3 +1,5 @@
+ package a
++
++// added is new.
++func added() {}
+ func old() {}
+-func gone() {}
+diff --git a/b.txt b/b.txt
+deleted file mode 100644
+--- a/b.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-first
+-+++ not a header
+`
+
+@(test)
+diff_sides_reads_both_sides :: proc(t: ^testing.T) {
+	added, removed := diff_sides(canned, context.temp_allocator)
+	testing.expect_value(t, len(added), 1)
+	a := added["a.go"]
+	testing.expect_value(t, len(a), 3)
+	testing.expect_value(t, a[0].line, 2)
+	testing.expect_value(t, a[1].line, 3)
+	testing.expect_value(t, a[1].text, "// added is new.")
+	testing.expect_value(t, a[2].line, 4)
+	testing.expect_value(t, len(removed["a.go"]), 1)
+	testing.expect_value(t, removed["a.go"][0], "func gone() {}")
+	testing.expect_value(t, len(removed["b.txt"]), 2)
+	testing.expect_value(t, removed["b.txt"][1], "+++ not a header")
+	testing.expect_value(t, hunk_start("@@ -10,7 +12 @@ func x") or_else -1, 12)
+}
+
+// new_repo makes a repository with two commits: a.go first, then a
+// function, a test and a comment added to it.
+new_repo :: proc(t: ^testing.T) -> (root: string, ok: bool) {
+	temp := os.temp_directory(context.temp_allocator) or_else ""
+	scratch, err := os.make_directory_temp(temp, "review-change-*", context.temp_allocator)
+	if err != nil {
+		testing.fail_now(t, "no scratch directory")
+	}
+	root = scratch
+	git := proc(root: string, args: ..string) -> bool {
+		argv := make([dynamic]string, context.temp_allocator)
+		append(
+			&argv,
+			"git",
+			"-c",
+			"user.email=t@t",
+			"-c",
+			"user.name=t",
+			"-c",
+			"commit.gpgsign=false",
+		)
+		append(&argv, ..args)
+		return sh.exec(argv[:], {dir = root}, context.temp_allocator).ok
+	}
+	write := proc(root, name, src: string) -> bool {
+		path := filepath.join({root, name}, context.temp_allocator) or_else name
+		return os.write_entire_file(path, transmute([]byte)src) == nil
+	}
+	ok = git(root, "init", "-q")
+	ok &&= write(root, "a.go", "package a\n\nfunc old() {}\n")
+	ok &&= git(root, "add", "a.go")
+	ok &&= git(root, "commit", "-q", "-m", "a: begin")
+	ok &&= write(
+		root,
+		"a.go",
+		"package a\n\nimport \"fmt\"\n\nfunc old() {}\n\n// added is new.\nfunc added() {}\n",
+	)
+	ok &&= write(
+		root,
+		"a_test.go",
+		"package a\n\nimport \"testing\"\n\nfunc TestAdded(t *testing.T) {\n\tadded()\n}\n",
+	)
+	ok &&= git(root, "add", "a.go", "a_test.go")
+	ok &&= git(root, "commit", "-q", "-m", "a: add added")
+	return root, ok
+}
+
+@(test)
+gather_reads_a_range_through_the_sidecar :: proc(t: ^testing.T) {
+	if !frontend.installed(.Go) {
+		testing.fail_now(t, "review-go is not on the path")
+	}
+	root, made := new_repo(t)
+	testing.expect(t, made, "the fixture repository")
+	defer os.remove_all(root)
+
+	c, ok := gather("HEAD^..HEAD", root, context.temp_allocator)
+	testing.expect(t, ok, "gather")
+	testing.expect_value(t, len(c.files), 2)
+	testing.expect_value(t, c.message, "a: add added")
+	testing.expect_value(t, c.truncated, false)
+
+	tr, at_ok := tree.at(root, "HEAD^..HEAD", context.temp_allocator)
+	testing.expect(t, at_ok, "materialise")
+	defer tree.close(tr)
+	testing.expect(t, tr.dir != root, "a range is read from scratch")
+	testing.expect(t, tree.exists(tr, "a_test.go"))
+
+	testing.expect(t, read(&c, tr, context.temp_allocator), "read")
+	testing.expect_value(t, len(c.uncovered), 0)
+	testing.expect_value(t, len(c.symbols), 1)
+	testing.expect_value(t, c.symbols[0].name, "added")
+	testing.expect_value(t, c.symbols[0].kind, "func")
+	testing.expect_value(t, c.symbols[0].doc, "added is new.")
+	testing.expect_value(t, c.symbols[0].body, "func added() {}")
+	testing.expect_value(t, c.symbols[0].pkg, "a")
+	testing.expect_value(t, len(c.tests), 1)
+	testing.expect_value(t, c.tests[0].name, "TestAdded")
+	testing.expect_value(t, c.tests[0].body, "func TestAdded(t *testing.T) {\n\tadded()\n}")
+	testing.expect_value(t, len(c.comments), 1)
+	testing.expect_value(t, c.comments[0].text, "added is new.")
+	testing.expect_value(t, len(c.imports["a.go"]), 1)
+	testing.expect_value(t, c.imports["a.go"][0], "fmt")
+
+	declared, indexed := index(tr, context.temp_allocator)
+	testing.expect(t, indexed, "index")
+	names := make([dynamic]string, context.temp_allocator)
+	for d in declared {
+		append(&names, d.name)
+	}
+	testing.expect_value(t, fmt.tprint(names[:]), `["old", "added"]`)
+}
+
+@(test)
+gather_of_nothing_staged_is_empty :: proc(t: ^testing.T) {
+	root, made := new_repo(t)
+	testing.expect(t, made, "the fixture repository")
+	defer os.remove_all(root)
+	c, ok := gather("", root, context.temp_allocator)
+	testing.expect(t, ok, "gather")
+	testing.expect_value(t, len(c.files), 0)
+	testing.expect_value(t, c.diff, "")
+	testing.expect_value(t, c.message, "")
+}

@@ -434,7 +434,9 @@ in `criteria/` that reads like an exception was written to stop one.
 
 ## Languages
 
-Go is read with the standard library's parser. TypeScript and JavaScript — `.ts`,
+Go is read with the standard library's parser; the same reading ships as the `review-go`
+sidecar, built from `sidecar/gofront`, for a reviewer written in another language — the
+Odin reading under `odin/` drives it and `odin-review-extract` through one JSON shape. TypeScript and JavaScript — `.ts`,
 `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` — are read through ast-grep when it is on the
 path, by pattern; Python and Rust through the same ast-grep, by node kind — a function
 is whatever the grammar calls one, and its name is read out of the match. Odin is read

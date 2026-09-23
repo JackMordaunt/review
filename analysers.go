@@ -424,7 +424,8 @@ var odinCheck = Analyser{
 		}) {
 			// The compiler writes its JSON to stderr and exits non-zero
 			// when it has errors, which is the answer, not a failure.
-			stdout, stderr, err := executeBoth(ctx, tree, nil, "odin", "check", dir, "-vet", "-strict-style", "-json-errors", "-no-entry-point")
+			args := append([]string{"check", dir, "-vet", "-strict-style", "-json-errors", "-no-entry-point"}, odinCollections(tree)...)
+			stdout, stderr, err := executeBoth(ctx, tree, nil, "odin", args...)
 			out := append(stdout, stderr...)
 			if err != nil && !bytes.Contains(out, []byte("error_count")) {
 				return diagnostics, fmt.Errorf("odin: %s", tail(strings.TrimSpace(string(out)), 200))
@@ -433,6 +434,38 @@ var odinCheck = Analyser{
 		}
 		return diagnostics, nil
 	},
+}
+
+// odinCollections are the -collection flags the repository's ols.json
+// declares, which is where an Odin project names the collections its
+// imports resolve through; a relative path is relative to the repository.
+// Without them the compiler cannot see past `import "name:pkg"`.
+func odinCollections(tree string) []string {
+	data, err := os.ReadFile(filepath.Join(tree, "ols.json"))
+	if err != nil {
+		return nil
+	}
+	var config struct {
+		Collections []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"collections"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil
+	}
+	var flags []string
+	for _, c := range config.Collections {
+		if c.Name == "" || c.Path == "" {
+			continue
+		}
+		path := c.Path
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(tree, path)
+		}
+		flags = append(flags, "-collection:"+c.Name+"="+path)
+	}
+	return flags
 }
 
 // parseOdin reads the compiler's -json-errors: a type error is a fault, a
