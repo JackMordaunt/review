@@ -202,9 +202,15 @@ nearest_walks_up :: proc(t: ^testing.T) {
 		testing.expect(t, os.make_directory_all(join(root, path)) == nil)
 	}
 	for path in ([]string{"go.mod", "sidecar/govet/go.mod"}) {
-		testing.expect(t, os.write_entire_file(join(root, path), transmute([]byte)string("module x")) == nil)
+		testing.expect(
+			t,
+			os.write_entire_file(join(root, path), transmute([]byte)string("module x")) == nil,
+		)
 	}
-	pkgs := go_packages(root, {"a/a.go", "sidecar/govet/main.go", "sidecar/gofront/main.go", "vendor/x/x.go"})
+	pkgs := go_packages(
+		root,
+		{"a/a.go", "sidecar/govet/main.go", "sidecar/gofront/main.go", "vendor/x/x.go"},
+	)
 	testing.expect_value(t, fmt.tprint(pkgs), `["./a", "./sidecar/gofront"]`)
 }
 

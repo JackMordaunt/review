@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -285,7 +286,7 @@ func (g TSFrontend) Change(root, rev string, c *Change, added map[string][]int) 
 			best[key] = m
 		}
 	}
-	for _, m := range best {
+	for _, m := range ordered(best) {
 		if strings.Contains(m.Rule, "-test-") {
 			name := unquote(m.name())
 			if name == "" || !touched[m.File][m.Range.Start.Line+1] {
@@ -352,7 +353,7 @@ func (g TSFrontend) Whole(root, rev string) ([]Declared, error) {
 		}
 	}
 	var index []Declared
-	for _, m := range best {
+	for _, m := range ordered(best) {
 		name := m.name()
 		if name == "" || strings.Contains(m.Rule, "-test-") {
 			continue
@@ -372,6 +373,23 @@ func (g TSFrontend) Whole(root, rev string) ([]Declared, error) {
 		index = append(index, declared)
 	}
 	return index, nil
+}
+
+// ordered is the best matches in file and line order, so that what is
+// read from them — and the finding anchored on the first of them — is the
+// same on every run.
+func ordered(best map[string]grepMatch) []grepMatch {
+	out := make([]grepMatch, 0, len(best))
+	for _, m := range best {
+		out = append(out, m)
+	}
+	slices.SortFunc(out, func(a, b grepMatch) int {
+		if c := strings.Compare(a.File, b.File); c != 0 {
+			return c
+		}
+		return a.Range.Start.Line - b.Range.Start.Line
+	})
+	return out
 }
 
 // ruleKind turns a rule id back into the shape the findings report.

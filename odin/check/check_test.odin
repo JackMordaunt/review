@@ -518,6 +518,7 @@ covered_spares_a_rename :: proc(t: ^testing.T) {
 
 @(test)
 names_are_measured :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
 	Stutter :: struct {
 		s:     change.Symbol,
 		fires: bool,

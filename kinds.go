@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -126,6 +127,14 @@ func (f *KindFrontend) read(matches []grepMatch) []kindMatch {
 	for _, m := range byLine {
 		out = append(out, m)
 	}
+	// In file and line order, so that what is read is the same on every
+	// run.
+	slices.SortFunc(out, func(a, b kindMatch) int {
+		if c := strings.Compare(a.File, b.File); c != 0 {
+			return c
+		}
+		return a.Line - b.Line
+	})
 	return out
 }
 

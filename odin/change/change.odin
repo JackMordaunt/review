@@ -661,7 +661,7 @@ read_file :: proc(c: ^Change, t: tree.Tree, name: string, file: frontend.File) {
 						name = strings.clone(decl.name),
 						file = name,
 						line = decl.line,
-						body = text(lines, decl.line, decl.end_line),
+						body = body_of(decl, lines),
 					},
 				)
 			}
@@ -681,17 +681,24 @@ read_file :: proc(c: ^Change, t: tree.Tree, name: string, file: frontend.File) {
 			pkg       = strings.clone(file.pkg),
 		}
 		if decl.kind == "func" {
-			symbol.body = text(lines, decl.line, decl.end_line)
+			symbol.body = body_of(decl, lines)
 		}
 		append(&c.symbols, symbol)
 	}
-	for comment in file.comments {
-		if touched[comment.line] {
-			append(
-				&c.comments,
-				Located{text = strings.clone(comment.text), file = name, line = comment.line},
-			)
+	// Go's sidecar reads comments with its parser; every other language's
+	// are read by shape, the same way for a parsed file and an unparsed
+	// one.
+	if s, _ := frontend.sidecar_for(name); s == .Go {
+		for comment in file.comments {
+			if touched[comment.line] {
+				append(
+					&c.comments,
+					Located{text = strings.clone(comment.text), file = name, line = comment.line},
+				)
+			}
 		}
+	} else {
+		append(&c.comments, ..comment_prose(source, name, added)[:])
 	}
 }
 
@@ -740,13 +747,22 @@ index :: proc(t: tree.Tree, allocator := context.allocator) -> (out: []Declared,
 					text = strings.clone(decl.text),
 				}
 				if decl.kind == "func" {
-					entry.body = text(lines, decl.line, decl.end_line)
+					entry.body = body_of(decl, lines)
 				}
 				append(&declared, entry)
 			}
 		}
 	}
 	return declared[:], ok
+}
+
+// body_of is a declaration's whole text: the reader's own match where it
+// has one, else the file's lines from its first to its last.
+body_of :: proc(decl: frontend.Decl, lines: []string, allocator := context.allocator) -> string {
+	if decl.body != "" {
+		return strings.clone(decl.body, allocator)
+	}
+	return text(lines, decl.line, decl.end_line, allocator)
 }
 
 // scan asks a sidecar about tracked files, handing it their paths in the

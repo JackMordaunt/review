@@ -24,6 +24,9 @@ Decl :: struct {
 	local:    bool,
 	text:     string,
 	doc:      string,
+	// body is the declaration's whole text where the reader has it as
+	// one match; empty where the caller reads it from the file by lines.
+	body:     string,
 }
 
 // Comment is one comment, located by its first line, marker stripped.
@@ -47,10 +50,15 @@ Output :: struct {
 	files: []File,
 }
 
-// Sidecar names the parser a language is read through.
+// Sidecar names the parser a language is read through: a program built
+// on the language's own parser for Go and Odin, and ast-grep's grammars
+// for the rest.
 Sidecar :: enum {
 	Go,
 	Odin,
+	Script,
+	Python,
+	Rust,
 }
 
 // Scan_Error says why a scan returned nothing: the sidecar is not on the
@@ -69,17 +77,27 @@ binary :: proc(sidecar: Sidecar) -> string {
 		return "review-go"
 	case .Odin:
 		return "odin-review-extract"
+	case .Script, .Python, .Rust:
+		return "ast-grep"
 	}
 	return ""
 }
 
-// sidecar_for is the sidecar that reads a path, by its extension.
+// sidecar_for is the sidecar that reads a path, by its extension. The
+// ast-grep languages are covered only while ast-grep is on the path; their
+// files fall to the comment reader otherwise.
 sidecar_for :: proc(path: string) -> (sidecar: Sidecar, covered: bool) {
 	switch {
 	case strings.has_suffix(path, ".go"):
 		return .Go, true
 	case strings.has_suffix(path, ".odin"):
 		return .Odin, true
+	case grammar_of(path) != "":
+		return .Script, installed(.Script)
+	case strings.has_suffix(path, ".py"):
+		return .Python, installed(.Python)
+	case strings.has_suffix(path, ".rs"):
+		return .Rust, installed(.Rust)
 	}
 	return .Go, false
 }
@@ -106,6 +124,9 @@ scan :: proc(
 	}
 	if !installed(sidecar) {
 		return out, .Not_Installed
+	}
+	if sidecar == .Script || sidecar == .Python || sidecar == .Rust {
+		return grep_scan(sidecar, files, allocator)
 	}
 	argv := make([]string, len(files) + 1, context.temp_allocator)
 	argv[0] = binary(sidecar)

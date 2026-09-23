@@ -11,6 +11,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
+import "core:sync"
 import "core:text/regex"
 import "core:unicode"
 
@@ -264,22 +265,24 @@ grammar_of :: proc(path: string) -> string {
 
 // The patterns the checks match are compiled once and kept for the
 // program; a check runs over every line of a change, and a pattern is not
-// worth compiling per line.
+// worth compiling per line. The cache is shared between threads, as the
+// test runner's are, so it is locked.
 @(private)
 patterns: map[string]regex.Regular_Expression
 @(private)
-scratch: regex.Capture
+patterns_lock: sync.Mutex
 
 @(init)
 init_patterns :: proc "contextless" () {
 	context = runtime.default_context()
 	patterns = make(map[string]regex.Regular_Expression, runtime.heap_allocator())
-	scratch = regex.preallocate_capture(runtime.heap_allocator())
 }
 
 // rx is the compiled form of a pattern, in Go's syntax as far as the two
 // engines share it.
 rx :: proc(pattern: string) -> regex.Regular_Expression {
+	sync.mutex_lock(&patterns_lock)
+	defer sync.mutex_unlock(&patterns_lock)
 	if re, ok := patterns[pattern]; ok {
 		return re
 	}
@@ -293,7 +296,7 @@ rx :: proc(pattern: string) -> regex.Regular_Expression {
 
 // matches reports whether a pattern matches anywhere in the text.
 matches :: proc(pattern, text: string) -> bool {
-	_, ok := regex.match(rx(pattern), text, &scratch)
+	_, ok := regex.match(rx(pattern), text, context.temp_allocator)
 	return ok
 }
 
@@ -317,11 +320,12 @@ capture :: proc(
 // capture_end is where the first match ends, for a reader that continues
 // from there.
 capture_end :: proc(pattern, text: string) -> (end: int, ok: bool) {
-	_, ok = regex.match(rx(pattern), text, &scratch)
+	cap: regex.Capture
+	cap, ok = regex.match(rx(pattern), text, context.temp_allocator)
 	if !ok {
 		return 0, false
 	}
-	return scratch.pos[0][1], true
+	return cap.pos[0][1], true
 }
 
 // find_all is every match of a pattern in the text, whole.
