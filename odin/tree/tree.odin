@@ -10,6 +10,7 @@ package tree
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "jfm:sh"
 
@@ -91,6 +92,28 @@ read :: proc(t: Tree, name: string, allocator := context.allocator) -> (data: []
 		allocator,
 	)
 	return contents, err == nil
+}
+
+// sources reads every tracked file that is text, so that a search over
+// the repository is a loop over memory rather than a program run. Binary
+// files are left out by the cheapest test there is: a NUL byte in the
+// first kilobyte.
+sources :: proc(t: Tree, allocator := context.allocator) -> (out: map[string][]byte, ok: bool) {
+	tracked := files(t, context.temp_allocator) or_return
+	out = make(map[string][]byte, allocator)
+	for name in tracked {
+		data, readable := read(t, name, allocator)
+		if !readable {
+			continue // A tracked path the tree cannot read is a link or gone.
+		}
+		head := data[:min(len(data), 1024)]
+		if slice.contains(head, 0) {
+			delete(data, allocator)
+			continue
+		}
+		out[strings.clone(name, allocator)] = data
+	}
+	return out, true
 }
 
 // exists reports whether the tree holds the path as a file.

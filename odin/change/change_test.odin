@@ -140,6 +140,112 @@ gather_reads_a_range_through_the_sidecar :: proc(t: ^testing.T) {
 }
 
 @(test)
+comments_are_read_beside_their_code :: proc(t: ^testing.T) {
+	lines := []string {
+		"package x",
+		"",
+		"// above",
+		"// and more",
+		"",
+		"func f() {",
+		"\treturn",
+		"}",
+	}
+	testing.expect_value(t, code_below(lines, 3, context.temp_allocator), "func f() {\nreturn")
+	testing.expect_value(t, code_below(lines, 8, context.temp_allocator), "")
+	testing.expect_value(
+		t,
+		skip_line(
+			Function{line = 10, body = "func TestX(t *testing.T) {\n\tt.Skip(\"later\")\n}"},
+		),
+		11,
+	)
+	testing.expect_value(
+		t,
+		skip_line(Function{line = 10, body = "func TestX(t *testing.T) {}"}),
+		0,
+	)
+	testing.expect_value(t, count_numstat("3\t1\ta.go\n-\t-\tb.png\n2\t0\tc.go\n"), 6)
+}
+
+@(test)
+heuristic_reads_comments_by_shape :: proc(t: ^testing.T) {
+	src := "#!/usr/bin/env python\n# one\nx = 1  # not a comment line\n\"\"\"\n# two\n/* three\n * four */\n"
+	touched := make([dynamic]Diff_Line, context.temp_allocator)
+	for line in ([]int{1, 2, 3, 5, 6, 7}) {
+		append(&touched, Diff_Line{line, ""})
+	}
+	got := comment_prose(transmute([]byte)src, "a.py", touched, context.temp_allocator)
+	texts := make([dynamic]string, context.temp_allocator)
+	for l in got {
+		append(&texts, l.text)
+	}
+	testing.expect_value(t, fmt.tprint(texts[:]), `["one", "two", "three", "four"]`)
+	testing.expect(t, heuristic_covers("a.zig"))
+	testing.expect(t, !heuristic_covers("a.md"))
+}
+
+@(test)
+temporal_counts_the_pair :: proc(t: ^testing.T) {
+	root, made := new_repo(t)
+	testing.expect(t, made, "the fixture repository")
+	defer os.remove_all(root)
+	git := proc(root: string, args: ..string) -> bool {
+		argv := make([dynamic]string, context.temp_allocator)
+		append(
+			&argv,
+			"git",
+			"-c",
+			"user.email=t@t",
+			"-c",
+			"user.name=t",
+			"-c",
+			"commit.gpgsign=false",
+		)
+		append(&argv, ..args)
+		return sh.exec(argv[:], {dir = root}, context.temp_allocator).ok
+	}
+	for i in 0 ..< 8 {
+		a := filepath.join({root, "pair_a.go"}, context.temp_allocator) or_else ""
+		b := filepath.join({root, "pair_b.go"}, context.temp_allocator) or_else ""
+		testing.expect(
+			t,
+			os.write_entire_file(
+				a,
+				transmute([]byte)fmt.tprintf("package a\n\nvar v%d = %d\n", i, i),
+			) ==
+			nil,
+		)
+		testing.expect(
+			t,
+			os.write_entire_file(
+				b,
+				transmute([]byte)fmt.tprintf("package b\n\nvar w%d = %d\n", i, i),
+			) ==
+			nil,
+		)
+		testing.expect(t, git(root, "add", "pair_a.go", "pair_b.go"))
+		testing.expect(t, git(root, "commit", "-q", "-m", fmt.tprintf("grow: round %d", i)))
+	}
+	a := filepath.join({root, "pair_a.go"}, context.temp_allocator) or_else ""
+	testing.expect(
+		t,
+		os.write_entire_file(a, transmute([]byte)string("package a\n\nvar v9 = 9\n")) == nil,
+	)
+	testing.expect(t, git(root, "add", "pair_a.go"))
+	c, ok := gather("", root, context.temp_allocator)
+	testing.expect(t, ok)
+	temporal, counted := c.temporal.?
+	testing.expect(t, counted, "history counted")
+	testing.expect_value(t, temporal.commits["pair_a.go"], 8)
+	testing.expect_value(t, len(temporal.partners["pair_a.go"]), 1)
+	testing.expect_value(t, temporal.partners["pair_a.go"][0].name, "pair_b.go")
+	testing.expect_value(t, temporal.partners["pair_a.go"][0].shared, 8)
+	testing.expect(t, c.changed > 0)
+	testing.expect(t, len(c.history) >= 10)
+}
+
+@(test)
 code_files_are_the_ones_a_reader_could_exist_for :: proc(t: ^testing.T) {
 	testing.expect(t, is_code_file("a/b.zig"))
 	testing.expect(t, is_code_file("Justfile"))

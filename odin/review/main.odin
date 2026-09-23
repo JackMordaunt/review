@@ -3,12 +3,14 @@
 // revision range given.
 //
 //	review [--json] [--verbose] [--show] [rev]
+//	review rules [<rule>]
 package main
 
 import "core:fmt"
 import "core:os"
 
 import "../change"
+import "../check"
 import "../finding"
 import "../git"
 import "../report"
@@ -17,6 +19,10 @@ import "../tree"
 main :: proc() {
 	as_json, verbose, show: bool
 	rev := ""
+	if len(os.args) > 1 && os.args[1] == "rules" {
+		rules(os.args[2:])
+		return
+	}
 	for arg in os.args[1:] {
 		switch arg {
 		case "--json":
@@ -64,12 +70,15 @@ main :: proc() {
 	defer tree.close(t)
 
 	change.read(&c, t)
+	c.index, _ = change.index(t)
 	if show {
 		list(c, t)
 	}
-	findings: [dynamic]finding.Finding
-	finding.sort(findings[:])
-	kept, dismissed := report.filter(t.dir, findings[:])
+	// The deterministic checks ask nothing of a provider, so they run
+	// before one is built and survive a model that cannot answer.
+	findings := check.run(check.scope_of(&c, t))
+	finding.sort(findings)
+	kept, dismissed := report.filter(t.dir, findings)
 	env := report.Contract {
 		status    = report.status_of(c, 0),
 		findings  = kept,
@@ -110,6 +119,21 @@ list :: proc(c: change.Change, t: tree.Tree) {
 	for l in c.comments {
 		fmt.printfln("comment %s:%d %s", l.file, l.line, l.text)
 	}
-	declared, _ := change.index(t)
-	fmt.printfln("=== index: %d declarations ===", len(declared))
+	fmt.printfln("=== index: %d declarations ===", len(c.index))
+}
+
+// rules prints the catalogue, or one rule's description, so that an
+// agent given a finding can read what it was judged against without
+// leaving the terminal.
+rules :: proc(args: []string) {
+	if len(args) == 0 {
+		fmt.print(check.catalogue())
+		return
+	}
+	description, ok := check.describe(args[0])
+	if !ok {
+		fmt.eprintfln("review: no rule called %q", args[0])
+		os.exit(1)
+	}
+	fmt.printfln("%s, a deterministic check:\n\n%s", args[0], description)
 }

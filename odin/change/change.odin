@@ -8,7 +8,9 @@ what new work is judged against.
 package change
 
 import "core:fmt"
+import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 
@@ -29,19 +31,38 @@ Symbol :: struct {
 	pkg:       string,
 }
 
-// Function is a test the change adds or touches, whole.
+// Function is a test the change adds or touches, whole. skips is the
+// line the test skips itself on, or zero, read from the body by shape.
 Function :: struct {
-	name: string,
-	file: string,
-	line: int,
-	body: string,
+	name:  string,
+	file:  string,
+	line:  int,
+	body:  string,
+	skips: int,
 }
 
-// Located is a comment the change adds.
+// Located is a comment the change adds, with the code it sits above, a
+// couple of lines of it, so that a claim about behaviour can be read
+// beside the behaviour.
 Located :: struct {
-	text: string,
-	file: string,
-	line: int,
+	text:  string,
+	file:  string,
+	line:  int,
+	below: string,
+}
+
+// Temporal is what the repository's history counts about the files the
+// change touches: how many commits touch each, and which other files
+// those commits also touched, nearest first.
+Temporal :: struct {
+	commits:  map[string]int,
+	partners: map[string][]Partner,
+}
+
+// Partner is another file that history shows changing with a changed one.
+Partner :: struct {
+	name:   string,
+	shared: int,
 }
 
 // Declared is one declaration somewhere in the repository, which a new
@@ -70,23 +91,39 @@ Diff_Line :: struct {
 // Change is what is under review.
 Change :: struct {
 	// diff is the change itself, capped at max_diff.
-	diff:      string,
-	truncated: bool,
+	diff:       string,
+	truncated:  bool,
 	// files are the paths it touches.
-	files:     []string,
+	files:      []string,
 	// message is the commit message: empty for a staged change.
-	message:   string,
-	stat:      string,
+	message:    string,
+	stat:       string,
 	// added and removed are the diff's two sides, per file.
-	added:     map[string][dynamic]Diff_Line,
-	removed:   map[string][dynamic]string,
+	added:      map[string][dynamic]Diff_Line,
+	removed:    map[string][dynamic]string,
 	// What the sidecars read on the added lines.
-	symbols:   [dynamic]Symbol,
-	tests:     [dynamic]Function,
-	comments:  [dynamic]Located,
-	imports:   map[string][]string,
+	symbols:    [dynamic]Symbol,
+	tests:      [dynamic]Function,
+	comments:   [dynamic]Located,
+	imports:    map[string][]string,
 	// uncovered are the code files no sidecar read, with a reason each.
-	uncovered: [dynamic]Gap,
+	uncovered:  [dynamic]Gap,
+	// convention is the recent commit subjects, so a check can read the
+	// local habit; history is the last thousand, the word frequencies the
+	// message is measured against.
+	convention: []string,
+	history:    []string,
+	// temporal is the counted history of the files the change touches,
+	// or nothing when the history says nothing.
+	temporal:   Maybe(Temporal),
+	// changed is how many lines the diff adds and removes, counted by git
+	// over the whole change rather than the capped diff; whitespace is how
+	// many of them change nothing but whitespace.
+	changed:    int,
+	whitespace: int,
+	// index is every declaration in the repository at the end of the
+	// change, kept for the checks that judge new work against it.
+	index:      []Declared,
 }
 
 max_diff :: 60000
@@ -115,9 +152,170 @@ gather :: proc(rev, root: string, allocator := context.allocator) -> (c: Change,
 	if rev != "" {
 		c.message, _ = git.run(root, {"log", "-1", "--format=%B", strings.trim_suffix(rev, "^")})
 	}
+	// The whitespace-only lines are what the diff loses when git is asked
+	// to ignore whitespace; the difference is the formatting mixed in.
+	count :=
+		[]string{"diff", "--cached", "--numstat"} if rev == "" else []string{"diff", rev, "--numstat"}
+	loose :=
+		[]string{"diff", "--cached", "-w", "--numstat"} if rev == "" else []string{"diff", rev, "-w", "--numstat"}
+	if plain, counted := git.run(root, count, context.temp_allocator); counted {
+		if without, counted_loose := git.run(root, loose, context.temp_allocator); counted_loose {
+			c.changed = count_numstat(plain)
+			c.whitespace = c.changed - count_numstat(without)
+		}
+	}
+	c.convention, _ = git.lines(root, {"log", "-12", "--format=%s"})
+	c.history, _ = git.lines(root, {"log", "-1000", "--format=%s"})
 	c.added, c.removed = diff_sides(c.diff)
 	c.imports = make(map[string][]string)
+	read_temporal(&c, root, rev)
 	return c, true
+}
+
+// count_numstat sums the lines added and removed over git's --numstat
+// output. A binary file's counts are dashes and count nothing.
+count_numstat :: proc(out: string) -> int {
+	n := 0
+	rest := out
+	for line in strings.split_lines_iterator(&rest) {
+		parts := strings.fields(line, context.temp_allocator)
+		if len(parts) < 3 {
+			continue
+		}
+		a, _ := strconv.parse_int(parts[0])
+		b, _ := strconv.parse_int(parts[1])
+		n += a + b
+	}
+	return n
+}
+
+// The counting window and width: the coupling is counted over the last
+// thousand commits before the change, and a commit listing more than a
+// hundred files is left out of the count — a sweep touching everything
+// once says nothing about any pair. partner_list is the fewest-nearest
+// partners kept per changed file.
+temporal_window :: 1000
+temporal_width  :: 100
+partner_list    :: 20
+
+// read_temporal counts, over the last thousand commits before the change,
+// how often each changed file is touched by a commit that also touches
+// another file. The history starts at the commit the change begins at, so
+// the change under review is never counted against itself.
+read_temporal :: proc(c: ^Change, root, rev: string) {
+	if len(c.files) == 0 {
+		return
+	}
+	start := ""
+	switch {
+	case rev == "":
+	case strings.contains(rev, ".."):
+		start = rev[:strings.index(rev, "..")]
+	case strings.has_suffix(rev, "^"):
+		start = rev
+	case:
+		start = strings.concatenate({rev, "^"}, context.temp_allocator)
+	}
+	args := make([dynamic]string, context.temp_allocator)
+	append(&args, "log", fmt.tprintf("-%d", temporal_window), "--format=%x00", "--name-only")
+	if start != "" {
+		append(&args, start)
+	}
+	logs, ok := git.run(root, args[:], context.temp_allocator)
+	if !ok {
+		return // No history, or a bare first commit: nothing to count.
+	}
+	changed := make(map[string]bool, context.temp_allocator)
+	for f in c.files {
+		changed[f] = true
+	}
+	commits := make(map[string]int)
+	pairs := make(map[string]map[string]int, context.temp_allocator)
+	for chunk in strings.split(logs, "\x00", context.temp_allocator) {
+		files := make([dynamic]string, context.temp_allocator)
+		rest := chunk
+		for line in strings.split_lines_iterator(&rest) {
+			if trimmed := strings.trim_space(line); trimmed != "" {
+				append(&files, trimmed)
+			}
+		}
+		if len(files) > temporal_width {
+			continue
+		}
+		for f in files {
+			commits[strings.clone(f)] += 1
+		}
+		for f in files {
+			if !changed[f] {
+				continue
+			}
+			if f not_in pairs {
+				pairs[f] = make(map[string]int, context.temp_allocator)
+			}
+			counts := &pairs[f]
+			for g in files {
+				if g != f {
+					counts[g] += 1
+				}
+			}
+		}
+	}
+	t := Temporal {
+		commits  = commits,
+		partners = make(map[string][]Partner),
+	}
+	Named :: struct {
+		name: string,
+		j:    f64,
+	}
+	for f, ps in pairs {
+		list := make([dynamic]Named, context.temp_allocator)
+		for name, shared in ps {
+			joint := commits[f] + commits[name] - shared
+			if joint <= 0 {
+				continue
+			}
+			append(&list, Named{name, f64(shared) / f64(joint)})
+		}
+		slice.sort_by_cmp(list[:], proc(a, b: Named) -> slice.Ordering {
+			if a.j != b.j {
+				return .Less if a.j > b.j else .Greater
+			}
+			return .Less if a.name < b.name else (.Greater if a.name > b.name else .Equal)
+		})
+		partners := make([dynamic]Partner)
+		for e in list {
+			if len(partners) == partner_list {
+				break
+			}
+			// A partner the tree no longer holds is history's partner, not
+			// this change's.
+			if remaining(root, rev, e.name) {
+				append(&partners, Partner{strings.clone(e.name), ps[e.name]})
+			}
+		}
+		if len(partners) > 0 {
+			t.partners[strings.clone(f)] = partners[:]
+		}
+	}
+	if len(t.partners) > 0 {
+		c.temporal = t
+	}
+}
+
+// remaining reports whether a partner path is still a file at the end of
+// the change.
+remaining :: proc(root, rev, name: string) -> bool {
+	after, ranged := tree.ends(rev)
+	if !ranged {
+		return os.is_file(filepath.join({root, name}, context.temp_allocator) or_else name)
+	}
+	_, ok := git.run(
+		root,
+		{"cat-file", "-e", strings.concatenate({after, ":", name}, context.temp_allocator)},
+		context.temp_allocator,
+	)
+	return ok
 }
 
 // diff_sides splits a diff into the added and removed lines of each file.
@@ -211,12 +409,28 @@ read :: proc(c: ^Change, t: tree.Tree, allocator := context.allocator) -> bool {
 	context.allocator = allocator
 	ok := true
 	for name in c.files {
+		if _, covered := frontend.sidecar_for(name); covered || !tree.exists(t, name) {
+			continue
+		}
+		// A language no parser covers still has its comments read, by
+		// the prefixes the C-family shares; the jobs that need
+		// declarations or test bodies are named as unread for it.
+		if heuristic_covers(name) {
+			if source, readable := tree.read(t, name, context.temp_allocator); readable {
+				append(&c.comments, ..comment_prose(source, name, c.added[name])[:])
+			}
+			append(
+				&c.uncovered,
+				Gap{name, "no duplication, namer parser"},
+				Gap{name, "no tests parser"},
+			)
+			continue
+		}
 		// A file no reader could plausibly exist for — prose, data,
 		// configuration — is not a promise the review broke; a code file
 		// with no reader is, because a job that would have read it read
 		// nothing.
-		if _, covered := frontend.sidecar_for(name);
-		   !covered && is_code_file(name) && tree.exists(t, name) {
+		if is_code_file(name) {
 			append(&c.uncovered, Gap{name, "no reader"})
 		}
 	}
@@ -253,7 +467,171 @@ read :: proc(c: ^Change, t: tree.Tree, allocator := context.allocator) -> bool {
 			read_file(c, t, name, file)
 		}
 	}
+	annotate(c, t)
 	return ok
+}
+
+// annotate adds to what the sidecars read the parts every language
+// shares: the code below each comment, and the line a test skips itself
+// on. Both are read by shape from the source.
+annotate :: proc(c: ^Change, t: tree.Tree) {
+	lines := make(map[string][]string, context.temp_allocator)
+	for &comment in c.comments {
+		if comment.file not_in lines {
+			source, readable := tree.read(t, comment.file, context.temp_allocator)
+			lines[comment.file] =
+				strings.split_lines(string(source), context.temp_allocator) if readable else nil
+		}
+		comment.below = code_below(lines[comment.file], comment.line)
+	}
+	for &test in c.tests {
+		test.skips = skip_line(test)
+	}
+}
+
+// below_lines is how much code a comment is shown beside.
+below_lines :: 2
+
+// code_below is the code that follows a comment: the first lines after it
+// that are neither blank nor comment, up to below_lines of them.
+code_below :: proc(lines: []string, comment: int, allocator := context.allocator) -> string {
+	out := make([dynamic]string, context.temp_allocator)
+	for i := comment; i < len(lines) && len(out) < below_lines; i += 1 {
+		trimmed := strings.trim_space(lines[i])
+		if trimmed == "" || is_comment_line(trimmed) {
+			if len(out) > 0 {
+				break
+			}
+			continue
+		}
+		append(&out, trimmed)
+	}
+	return strings.join(out[:], "\n", allocator)
+}
+
+// is_comment_line is whether a trimmed line is a comment by the shapes
+// the tool's languages share.
+is_comment_line :: proc(trimmed: string) -> bool {
+	if strings.has_prefix(trimmed, "//") ||
+	   strings.has_prefix(trimmed, "/*") ||
+	   strings.has_prefix(trimmed, "*") {
+		return true
+	}
+	return strings.has_prefix(trimmed, "#") && !strings.has_prefix(trimmed, "#!")
+}
+
+// skip_line is the line a test skips itself on, or zero.
+skip_line :: proc(t: Function) -> int {
+	rest := t.body
+	i := 0
+	for line in strings.split_lines_iterator(&rest) {
+		trimmed := strings.trim_space(line)
+		for shape in ([]string{"t.Skip(", "t.Skipf(", "t.SkipNow(", "test.skip(", "it.skip(", "describe.skip(", "this.skip(", "testing.skip(", "t.skip(", "pytest.skip(", "pytest.mark.skip", "self.skipTest(", "unittest.skip"}) {
+			if strings.contains(trimmed, shape) {
+				return t.line + i
+			}
+		}
+		i += 1
+	}
+	return 0
+}
+
+// heuristic_covers reports the languages whose comment shape is known
+// without a parser. Prose-only formats are left out: their text is not a
+// comment.
+heuristic_covers :: proc(path: string) -> bool {
+	for ext in ([]string{".py", ".rb", ".rs", ".c", ".h", ".cc", ".cpp", ".hpp", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".lua", ".zig", ".swift", ".kt", ".java", ".php", ".scala", ".cs"}) {
+		if strings.has_suffix(path, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// comment_prose lifts the comment lines among the added ones out of a
+// source file by the prefixes the C-family shares: // and # for line
+// comments, an open /* kept whole until its close. The shebang is not a
+// comment.
+comment_prose :: proc(
+	source: []byte,
+	name: string,
+	touched: [dynamic]Diff_Line,
+	allocator := context.allocator,
+) -> [dynamic]Located {
+	out := make([dynamic]Located, allocator)
+	if len(touched) == 0 {
+		return out
+	}
+	is_touched := make(map[int]bool, context.temp_allocator)
+	for l in touched {
+		is_touched[l.line] = true
+	}
+	in_block := false
+	rest := string(source)
+	number := 0
+	for line in strings.split_lines_iterator(&rest) {
+		number += 1
+		trimmed := strings.trim_space(line)
+		switch {
+		case in_block:
+			if is_touched[number] {
+				t := strings.trim_suffix(trimmed, "*/")
+				t = strings.trim_space(strings.trim_prefix(t, "*"))
+				if t != "" {
+					append(
+						&out,
+						Located{text = strings.clone(t, allocator), file = name, line = number},
+					)
+				}
+			}
+			if strings.contains(trimmed, "*/") {
+				in_block = false
+			}
+		case strings.has_prefix(trimmed, "/*"):
+			t := trimmed[2:]
+			if end := strings.index(t, "*/"); end >= 0 {
+				t = t[:end]
+			} else {
+				in_block = true
+			}
+			if is_touched[number] && strings.trim_space(t) != "" {
+				text := strings.trim_space(strings.trim_prefix(strings.trim_space(t), "*"))
+				append(
+					&out,
+					Located{text = strings.clone(text, allocator), file = name, line = number},
+				)
+			}
+		case strings.has_prefix(trimmed, "//"):
+			if is_touched[number] {
+				append(
+					&out,
+					Located {
+						text = strings.clone(
+							strings.trim_space(strings.trim_prefix(trimmed, "//")),
+							allocator,
+						),
+						file = name,
+						line = number,
+					},
+				)
+			}
+		case strings.has_prefix(trimmed, "#") && !strings.has_prefix(trimmed, "#!"):
+			if is_touched[number] {
+				append(
+					&out,
+					Located {
+						text = strings.clone(
+							strings.trim_space(strings.trim_prefix(trimmed, "#")),
+							allocator,
+						),
+						file = name,
+						line = number,
+					},
+				)
+			}
+		}
+	}
+	return out
 }
 
 // read_file keeps what one file's answer says about the added lines.
