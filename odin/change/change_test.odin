@@ -247,6 +247,28 @@ temporal_counts_the_pair :: proc(t: ^testing.T) {
 }
 
 @(test)
+a_message_file_loses_its_template :: proc(t: ^testing.T) {
+	temp := os.temp_directory(context.temp_allocator) or_else ""
+	path := filepath.join({temp, "review_message_fixture.txt"}, context.temp_allocator) or_else ""
+	testing.expect(
+		t,
+		os.write_entire_file(
+			path,
+			transmute([]byte)string(
+				"x: do it\n\n# Please enter the commit message\n# Lines starting with '#' are ignored\nbecause it matters\n",
+			),
+		) ==
+		nil,
+	)
+	defer os.remove(path)
+	message, ok := read_message(path, context.temp_allocator)
+	testing.expect(t, ok)
+	testing.expect_value(t, message, "x: do it\n\nbecause it matters")
+	_, missing := read_message("/nowhere/at/all", context.temp_allocator)
+	testing.expect(t, !missing)
+}
+
+@(test)
 code_files_are_the_ones_a_reader_could_exist_for :: proc(t: ^testing.T) {
 	testing.expect(t, is_code_file("a/b.zig"))
 	testing.expect(t, is_code_file("Justfile"))

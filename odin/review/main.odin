@@ -12,11 +12,13 @@ import "core:os"
 import "core:strings"
 
 import "../analyser"
+import "../bench"
 import "../cache"
 import "../change"
 import "../check"
 import "../finding"
 import "../git"
+import "../hook"
 import "../job"
 import "../provider"
 import "../report"
@@ -27,6 +29,11 @@ usage :: `review reads a change the way several narrow readers would.
 
 usage: review [flags] [rev]      the staged change, or a revision range
        review rules [<rule>]     the deterministic checks, or one of them
+       review rules -dismissed   the dismissals in the tree, per rule
+       review hook [install]     the commit-msg hook, printed or installed
+       review agent              what an agent's instructions should say
+       review bench [-n N] [-author A] [-rule R] [root]
+                                 the checks' fire rate over recent commits
 
   --json           Report findings as JSON, for an agent rather than a person.
   --verbose        Show what each job read and what it cost.
@@ -34,20 +41,38 @@ usage: review [flags] [rev]      the staged change, or a revision range
   --no-verify      Skip the second reading that checks what each job reported.
   --fresh          Ask the provider even where the answer cache holds this exact question.
   --exit-code      Exit 1 when a must-fix finding stands, so a hook can refuse the change.
+  --message-file f Read the commit message from this file, as a commit-msg hook is given it.
+  --baseline f     A previous --json report; each finding is then new, persisting or resolved against it.
   --jobs a,b       Run only these jobs, comma separated.
   --provider p     Who answers: chain (probe the default order), claude, pi, api, or command.
   --model m        Which model, in whatever form the provider names them.
 `
 
 Flags :: struct {
-	as_json, verbose, show, no_verify, fresh, exit_code: bool,
-	only, which, model, rev:                             string,
+	as_json, verbose, show, no_verify, fresh, exit_code:  bool,
+	only, which, model, rev, message_file, baseline_path: string,
 }
 
 main :: proc() {
-	if len(os.args) > 1 && os.args[1] == "rules" {
-		rules(os.args[2:])
-		return
+	if len(os.args) > 1 {
+		switch os.args[1] {
+		case "rules":
+			rules(os.args[2:])
+			return
+		case "hook":
+			out, err := hook.run(os.args[2:])
+			fmt.print(out)
+			if err != "" {
+				fmt.eprintfln("review: %s", err)
+				os.exit(1)
+			}
+			return
+		case "agent":
+			fmt.print(hook.agent_text)
+			return
+		case "bench":
+			os.exit(run_bench(os.args[2:]))
+		}
 	}
 	flags, ok := parse(os.args[1:])
 	if !ok {
@@ -101,6 +126,10 @@ parse :: proc(args: []string) -> (flags: Flags, ok: bool) {
 			flags.which = take(args, &i, value)
 		case "--model", "-model":
 			flags.model = take(args, &i, value)
+		case "--message-file", "-message-file":
+			flags.message_file = take(args, &i, value)
+		case "--baseline", "-baseline":
+			flags.baseline_path = take(args, &i, value)
 		case "-h", "--help", "-help":
 			fmt.print(usage)
 			return flags, false
@@ -134,6 +163,14 @@ run :: proc(flags: Flags) -> int {
 	if !gathered {
 		fmt.eprintfln("review: git could not describe %q", flags.rev)
 		return 1
+	}
+	if flags.message_file != "" {
+		message, read := change.read_message(flags.message_file)
+		if !read {
+			fmt.eprintfln("review: reading the message: %s", flags.message_file)
+			return 1
+		}
+		c.message = message
 	}
 	if strings.trim_space(c.diff) == "" {
 		if flags.as_json {
@@ -235,8 +272,18 @@ run :: proc(flags: Flags) -> int {
 			f.snippet = tree.line(t, f.file, f.line)
 		}
 	}
+	against: Maybe(report.Baseline)
+	if flags.baseline_path != "" {
+		b, cmp_err := report.compare(flags.baseline_path, kept)
+		if cmp_err != "" {
+			fmt.eprintfln("review: %s", cmp_err)
+			return 1
+		}
+		against = b
+	}
 	env := report.Contract {
 		status = report.status_of(c, len(result.failures)),
+		baseline = against,
 		provider = r.name,
 		findings = kept,
 		retracted = result.retracted[:],
@@ -307,6 +354,17 @@ faults :: proc(failures: []string) -> []report.Job_Fault {
 // agent given a finding can read what it was judged against without
 // leaving the terminal.
 rules :: proc(args: []string) {
+	if len(args) > 0 && (args[0] == "-dismissed" || args[0] == "--dismissed") {
+		cwd, _ := os.get_working_directory(context.temp_allocator)
+		root, in_repo := git.toplevel(cwd)
+		if !in_repo {
+			fmt.eprintln("review: not in a git repository")
+			os.exit(2)
+		}
+		t, _ := tree.at(root, "")
+		fmt.print(check.dismissals(check.scope_of(nil, t)))
+		return
+	}
 	if len(args) == 0 {
 		fmt.print(check.catalogue())
 		for j in job.all() {
@@ -356,4 +414,63 @@ criterion :: proc(id: string) -> (name, text: string, found: bool) {
 		}
 	}
 	return "", "", false
+}
+
+// run_bench measures the checks over recent commits and prints the fire
+// rate per rule. It returns the exit code.
+run_bench :: proc(args: []string) -> int {
+	opts := bench.Options {
+		n = 200,
+	}
+	root := ""
+	i := 0
+	for i < len(args) {
+		take := proc(args: []string, i: ^int) -> string {
+			if i^ + 1 < len(args) {
+				i^ += 1
+				return args[i^]
+			}
+			return ""
+		}
+		switch args[i] {
+		case "-n", "--n":
+			n := 0
+			for c in take(args, &i) {
+				if c >= '0' && c <= '9' {
+					n = n * 10 + int(c - '0')
+				}
+			}
+			if n > 0 {
+				opts.n = n
+			}
+		case "-author", "--author":
+			opts.author = take(args, &i)
+		case "-rule", "--rule":
+			opts.rule = take(args, &i)
+		case:
+			root = args[i]
+		}
+		i += 1
+	}
+	if root == "" {
+		cwd, _ := os.get_working_directory(context.temp_allocator)
+		found: bool
+		root, found = git.toplevel(cwd)
+		if !found {
+			fmt.eprintln("review: not in a git repository")
+			return 2
+		}
+	}
+	out, err := bench.run(
+		root,
+		opts,
+		proc(done, total: int) {fmt.eprintf("\r  %d of %d", done, total)},
+	)
+	fmt.eprint("\r                \r")
+	if err != "" {
+		fmt.eprintfln("review: %s", err)
+		return 1
+	}
+	fmt.print(out)
+	return 0
 }

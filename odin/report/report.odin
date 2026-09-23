@@ -10,6 +10,8 @@ package report
 
 import "core:encoding/json"
 import "core:fmt"
+import "core:os"
+import "core:slice"
 import "core:strings"
 
 import "../change"
@@ -68,6 +70,59 @@ Contract :: struct {
 	truncated: bool `json:"truncated,omitempty"`,
 	baseline:  Maybe(Baseline) `json:"baseline,omitempty"`,
 	usage:     Metered `json:"usage"`,
+}
+
+// compare reads the findings of a previous report and names this run's
+// against them, by id. Only the report's standing findings count: a
+// finding it retracted or dismissed was not one to fix.
+compare :: proc(
+	path: string,
+	now: []finding.Finding,
+	allocator := context.allocator,
+) -> (
+	b: Baseline,
+	err: string,
+) {
+	data, read_err := os.read_entire_file_from_path(path, context.temp_allocator)
+	if read_err != nil {
+		return b, fmt.aprintf("reading the baseline: %s", path, allocator = allocator)
+	}
+	Previous :: struct {
+		findings: []struct {
+			id: string `json:"id"`,
+		} `json:"findings"`,
+	}
+	previous: Previous
+	if json.unmarshal(data, &previous, allocator = context.temp_allocator) != nil {
+		return b, "the baseline is not a review report"
+	}
+	before := make(map[string]bool, context.temp_allocator)
+	for f in previous.findings {
+		if f.id != "" {
+			before[f.id] = true
+		}
+	}
+	b.from = strings.clone(path, allocator)
+	resolved := make([dynamic]string, allocator)
+	persisting := make([dynamic]string, allocator)
+	fresh := make([dynamic]string, allocator)
+	seen := make(map[string]bool, context.temp_allocator)
+	for f in now {
+		seen[f.id] = true
+		if before[f.id] {
+			append(&persisting, strings.clone(f.id, allocator))
+		} else {
+			append(&fresh, strings.clone(f.id, allocator))
+		}
+	}
+	for id in before {
+		if !seen[id] {
+			append(&resolved, strings.clone(id, allocator))
+		}
+	}
+	slice.sort(resolved[:])
+	b.resolved, b.persisting, b.new = resolved[:], persisting[:], fresh[:]
+	return b, ""
 }
 
 // status_of is how complete the measurement was: a job that failed, a

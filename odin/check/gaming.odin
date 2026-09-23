@@ -52,6 +52,65 @@ check_suppression_added :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 	)
 }
 
+// dismissals counts the dismissals in the tree per rule, with where each
+// is and why, so that the rules people argue with are visible: a rule
+// dismissed everywhere is a rule to rewrite.
+dismissals :: proc(s: Scope, allocator := context.allocator) -> string {
+	Spot :: struct {
+		where_at, why: string,
+	}
+	by_rule := make(map[string][dynamic]Spot, context.temp_allocator)
+	for file in sorted_keys(s.sources) {
+		if !change.is_code_file(file) {
+			continue
+		}
+		rest := string(s.sources[file])
+		number := 0
+		for line in strings.split_lines_iterator(&rest) {
+			number += 1
+			rule, why, found := finding.dismissal(line)
+			if !found || !matches(rule_id, rule) {
+				continue
+			}
+			// A dismissal quoted inside a string literal, as a test's
+			// fixture is, ends where the literal's line does.
+			if cut := strings.index(why, "\\n"); cut >= 0 {
+				why = why[:cut]
+			}
+			why = strings.trim_space(strings.trim_suffix(strings.trim_space(why), "\""))
+			if why == "" {
+				why = "no reason given"
+			}
+			spots := by_rule[rule]
+			if spots.allocator.procedure == nil {
+				spots = make([dynamic]Spot, context.temp_allocator)
+			}
+			append(&spots, Spot{fmt.tprintf("%s:%d", file, number), why})
+			by_rule[strings.clone(rule, context.temp_allocator)] = spots
+		}
+	}
+	b := strings.builder_make(allocator)
+	if len(by_rule) == 0 {
+		strings.write_string(&b, "no dismissals in the tree\n")
+		return strings.to_string(b)
+	}
+	rules := sorted_keys(by_rule)
+	// The most dismissed first, the rest by name.
+	for i in 1 ..< len(rules) {
+		for j := i; j > 0 && len(by_rule[rules[j]]) > len(by_rule[rules[j - 1]]); j -= 1 {
+			rules[j], rules[j - 1] = rules[j - 1], rules[j]
+		}
+	}
+	for rule in rules {
+		spots := by_rule[rule]
+		fmt.sbprintf(&b, "%-28s %d\n", rule, len(spots))
+		for spot in spots {
+			fmt.sbprintf(&b, "    %s  %s\n", spot.where_at, spot.why)
+		}
+	}
+	return strings.to_string(b)
+}
+
 // The shapes a test's declaration takes on a diff line, per runner.
 go_test           :: `^func ((?:Test|Benchmark|Fuzz)[A-Za-z0-9_]+)\(`
 py_test           :: `^(?:async\s+)?def (test_\w+)\(`

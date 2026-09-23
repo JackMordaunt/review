@@ -1265,6 +1265,36 @@ over_scope :: proc(s: Scope) -> []finding.Finding {
 }
 
 @(test)
+dismissals_are_counted_per_rule :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	sources := make(map[string][]byte)
+	sources["a.go"] = transmute([]byte)strings.concatenate(
+		{
+			"package a\n//review:",
+			"ignore no-shadow the loop's\nvar x = 1\n// review:",
+			"ignore no-shadow\n",
+		},
+	)
+	sources["b_test.go"] = transmute([]byte)strings.concatenate(
+		{"const fixture = \"//review:", "ignore cannot-fail it can\\nconst b = 6\"\n"},
+	)
+	sources["readme.md"] = transmute([]byte)strings.concatenate(
+		{"`//review:", "ignore <rule> <why>`\n"},
+	)
+	out := dismissals(Scope{sources = sources})
+	testing.expect(t, strings.has_prefix(out, "no-shadow                    2\n"), out)
+	testing.expect(t, strings.contains(out, "    a.go:2  the loop's\n"), out)
+	testing.expect(t, strings.contains(out, "    a.go:4  no reason given\n"), out)
+	testing.expect(
+		t,
+		strings.contains(out, "cannot-fail                  1\n    b_test.go:1  it can\n"),
+		out,
+	)
+	testing.expect(t, !strings.contains(out, "<rule>"), out)
+	testing.expect_value(t, dismissals(Scope{}), "no dismissals in the tree\n")
+}
+
+@(test)
 names_unknown_reads_the_tree :: proc(t: ^testing.T) {
 	if !frontend.installed(.Go) {
 		testing.fail_now(t, "review-go is not on the path")

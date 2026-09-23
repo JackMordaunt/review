@@ -178,6 +178,29 @@ gather :: proc(rev, root: string, allocator := context.allocator) -> (c: Change,
 	return c, true
 }
 
+// read_message reads a commit message the way git will: the lines its
+// comment character opens are the template's, not the author's, and a
+// message file a hook is given is full of them.
+read_message :: proc(path: string, allocator := context.allocator) -> (message: string, ok: bool) {
+	data, err := os.read_entire_file_from_path(path, context.temp_allocator)
+	if err != nil {
+		return "", false
+	}
+	kept := make([dynamic]string, context.temp_allocator)
+	rest := string(data)
+	for line in strings.split_lines_iterator(&rest) {
+		if strings.has_prefix(line, "#") {
+			continue
+		}
+		append(&kept, line)
+	}
+	return strings.clone(
+			strings.trim_space(strings.join(kept[:], "\n", context.temp_allocator)),
+			allocator,
+		),
+		true
+}
+
 // count_numstat sums the lines added and removed over git's --numstat
 // output. A binary file's counts are dashes and count nothing.
 count_numstat :: proc(out: string) -> int {

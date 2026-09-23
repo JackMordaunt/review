@@ -1,6 +1,7 @@
 package report
 
 import "core:encoding/json"
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -160,6 +161,38 @@ filter_drops_what_the_source_dismisses :: proc(t: ^testing.T) {
 	testing.expect_value(t, dismissed[0].why, "the ico package owns it")
 	testing.expect_value(t, len(kept), 1)
 	testing.expect_value(t, kept[0].message, "kept")
+}
+
+@(test)
+compare_names_this_run_against_the_last :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	temp := os.temp_directory(context.temp_allocator) or_else ""
+	dir, err := os.make_directory_temp(temp, "review-baseline-*", context.temp_allocator)
+	testing.expect(t, err == nil)
+	defer os.remove_all(dir)
+	path := filepath.join({dir, "previous.json"}, context.temp_allocator) or_else ""
+	testing.expect(
+		t,
+		os.write_entire_file(
+			path,
+			transmute([]byte)string(`{"findings":[{"id":"aaa"},{"id":"bbb"},{"id":""}]}`),
+		) ==
+		nil,
+	)
+	b, cmp_err := compare(path, {{id = "bbb"}, {id = "ccc"}})
+	testing.expect_value(t, cmp_err, "")
+	testing.expect_value(t, b.from, path)
+	testing.expect_value(t, fmt.tprint(b.resolved), `["aaa"]`)
+	testing.expect_value(t, fmt.tprint(b.persisting), `["bbb"]`)
+	testing.expect_value(t, fmt.tprint(b.new), `["ccc"]`)
+	_, missing := compare(
+		filepath.join({dir, "nowhere.json"}, context.temp_allocator) or_else "",
+		{},
+	)
+	testing.expect(t, strings.has_prefix(missing, "reading the baseline"))
+	testing.expect(t, os.write_entire_file(path, transmute([]byte)string("prose")) == nil)
+	_, prose := compare(path, {})
+	testing.expect_value(t, prose, "the baseline is not a review report")
 }
 
 @(test)
