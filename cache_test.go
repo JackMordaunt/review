@@ -149,3 +149,27 @@ func itoa(n int) string {
 	}
 	return string(digits)
 }
+
+// An answer nothing can be read from is not recorded. A model that spent
+// its budget and said nothing would otherwise be replayed, and the job
+// would fail the same way on every run without asking again.
+func TestReviewerDoesNotRecordAnUnreadableAnswer(t *testing.T) {
+	provider := &relenting{answers: []string{"", "", findingsJSON("cannot-fail")}}
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	cache := openCache(false)
+	jobs, err := chosen("tests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := Reviewer{Provider: provider, Cache: cache}.Run(context.Background(), verifyChange(), jobs)
+	if len(first.Failures) != 1 {
+		t.Fatalf("an empty answer, twice, is a failed job: %+v", first)
+	}
+	if len(cache.entries) != 0 {
+		t.Fatalf("recorded %d unreadable answers", len(cache.entries))
+	}
+	second := Reviewer{Provider: provider, Cache: cache}.Run(context.Background(), verifyChange(), jobs)
+	if len(second.Findings) != 1 || second.Replayed != 0 {
+		t.Fatalf("the second run did not ask again: %+v", second)
+	}
+}

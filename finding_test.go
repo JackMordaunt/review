@@ -204,8 +204,9 @@ func TestAtoi(t *testing.T) {
 }
 
 // A finding's id is what a loop uses to answer it and to check it stayed
-// answered, so the same finding names itself the same way across runs, and
-// a line that moved under it does not change its name.
+// answered, so the same finding names itself the same way across runs: a
+// line that moved under it does not change its name, and neither does a
+// fresh reading that words the same finding differently.
 func TestFindingIDIsStable(t *testing.T) {
 	f := Finding{Job: "tests", Rule: "cannot-fail", File: "x_test.go", Line: 4, Symbol: "TestX", Message: "m"}
 	identify(&f)
@@ -215,10 +216,45 @@ func TestFindingIDIsStable(t *testing.T) {
 	if moved.ID != f.ID || f.ID == "" {
 		t.Errorf("the id moved with the line: %q then %q", f.ID, moved.ID)
 	}
+	reworded := f
+	reworded.Message = "the same finding, said another way"
+	identify(&reworded)
+	if reworded.ID != f.ID {
+		t.Errorf("the id moved with the wording: %q then %q", f.ID, reworded.ID)
+	}
 	other := f
-	other.Message = "a different finding"
+	other.Symbol = "TestY"
 	identify(&other)
 	if other.ID == f.ID {
 		t.Error("two findings share one id")
+	}
+	// Without a symbol the line is what tells two comments apart.
+	a := Finding{Job: "claims", Rule: "unsupported-claim", File: "x.go", Line: 4}
+	b := Finding{Job: "claims", Rule: "unsupported-claim", File: "x.go", Line: 9}
+	identify(&a)
+	identify(&b)
+	if a.ID == b.ID {
+		t.Error("two comments share one id")
+	}
+	// A deterministic check's message is what it is about, and stable.
+	s1 := Finding{Job: "static", Rule: "history-coupled-file", File: "a.go", Message: "ties a.go to b.go"}
+	s2 := Finding{Job: "static", Rule: "history-coupled-file", File: "a.go", Message: "ties a.go to c.go"}
+	identify(&s1)
+	identify(&s2)
+	if s1.ID == s2.ID {
+		t.Error("two partners share one id")
+	}
+}
+
+// Two findings that hash the same are told apart in the report by a
+// counter, so a loop can still answer each by name.
+func TestNameFindingsTellsTwinsApart(t *testing.T) {
+	findings := []Finding{
+		{Job: "namer", Rule: "abbreviation", File: "x.go", Symbol: "cfg"},
+		{Job: "namer", Rule: "abbreviation", File: "x.go", Symbol: "cfg"},
+	}
+	nameFindings(findings)
+	if findings[0].ID == findings[1].ID || !strings.HasSuffix(findings[1].ID, "-2") {
+		t.Errorf("got %q and %q", findings[0].ID, findings[1].ID)
 	}
 }

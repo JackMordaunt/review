@@ -145,6 +145,13 @@ func (r Reviewer) Run(ctx context.Context, change *Change, jobs []Job) RunResult
 		}
 		result.Findings = append(result.Findings, findings...)
 	}
+	// Every job's parts are cut once, and the same cut serves the second
+	// reading, so a verdict is asked against exactly what the finding was
+	// read from.
+	cuts := map[string][]*Change{}
+	for _, job := range jobs {
+		cuts[job.Name] = parts(job, change)
+	}
 	read := func(job Job) {
 		subject := job.Subject(change)
 		if strings.TrimSpace(subject) == "" {
@@ -156,10 +163,19 @@ func (r Reviewer) Run(ctx context.Context, change *Change, jobs []Job) RunResult
 			}
 			return
 		}
-		askCtx, cancel := askContext(ctx)
-		findings, answer, err := r.ask(askCtx, job, subject)
-		cancel()
-		record(job, findings, answer, err)
+		pieces := cuts[job.Name]
+		if r.Verbose && len(pieces) > 1 {
+			fmt.Printf("  %-12s asked in %d parts\n", job.Name, len(pieces))
+		}
+		for i, piece := range pieces {
+			askCtx, cancel := askContext(ctx)
+			findings, answer, err := r.ask(askCtx, job, job.Subject(piece))
+			cancel()
+			for j := range findings {
+				findings[j].part = i
+			}
+			record(job, findings, answer, err)
+		}
 	}
 	if os.Getenv("REVIEW_SERIAL") != "" {
 		for _, job := range jobs {
@@ -177,14 +193,16 @@ func (r Reviewer) Run(ctx context.Context, change *Change, jobs []Job) RunResult
 		wg.Wait()
 	}
 	if r.Verify {
-		r.verify(ctx, change, jobs, &result)
+		r.verify(ctx, cuts, jobs, &result)
 	}
 	return result
 }
 
-// verifyGroup is one job's findings, for the pass that checks them.
+// verifyGroup is one job's findings from one part of its subject, for the
+// pass that checks them.
 type verifyGroup struct {
 	job     Job
+	part    int
 	indexes []int
 }
 
@@ -195,17 +213,22 @@ type verifyGroup struct {
 // question is whether each finding holds. A verdict that cannot be asked
 // fails open: the findings stand, marked unverified, and the failure joins
 // the others.
-func (r Reviewer) verify(ctx context.Context, change *Change, jobs []Job, result *RunResult) {
+func (r Reviewer) verify(ctx context.Context, cuts map[string][]*Change, jobs []Job, result *RunResult) {
 	var groups []verifyGroup
 	for _, job := range jobs {
-		var indexes []int
-		for i, f := range result.Findings {
-			if f.Job == job.Name {
-				indexes = append(indexes, i)
+		for part := range cuts[job.Name] {
+			var indexes []int
+			for i, f := range result.Findings {
+				// A note is never gated on, so a second reading of it
+				// buys nothing; it stands unverified, and the report
+				// says so.
+				if f.Job == job.Name && f.part == part && f.Severity != Note {
+					indexes = append(indexes, i)
+				}
 			}
-		}
-		if len(indexes) > 0 {
-			groups = append(groups, verifyGroup{job: job, indexes: indexes})
+			if len(indexes) > 0 {
+				groups = append(groups, verifyGroup{job: job, part: part, indexes: indexes})
+			}
 		}
 	}
 	if len(groups) == 0 {
@@ -217,7 +240,7 @@ func (r Reviewer) verify(ctx context.Context, change *Change, jobs []Job, result
 		drop = map[int]bool{}
 	)
 	apply := func(group verifyGroup) {
-		subject := group.job.Subject(change)
+		subject := group.job.Subject(cuts[group.job.Name][group.part])
 		askCtx, cancel := askContext(ctx)
 		held, answer, err := r.verdicts(askCtx, group.job, subject, result.Findings, group.indexes)
 		cancel()
@@ -317,7 +340,7 @@ func askContext(ctx context.Context) (context.Context, context.CancelFunc) {
 // the first's remaining time.
 func (r Reviewer) ask(ctx context.Context, job Job, subject string) ([]Finding, Answer, error) {
 	system := instruction + "\n\n" + job.Criteria
-	answer, err := r.answer(ctx, system, subject, r.Provider.Ask)
+	answer, err := r.answer(ctx, system, subject, r.Provider.Ask, readableFindings)
 	if err != nil {
 		return nil, Answer{}, err
 	}
@@ -325,7 +348,7 @@ func (r Reviewer) ask(ctx context.Context, job Job, subject string) ([]Finding, 
 	raw, err := object(answer.Text)
 	if err != nil {
 		prose := first(answer.Text, 200)
-		answer, err = r.answer(ctx, system, subject+"\n\n"+again, r.Provider.Ask)
+		answer, err = r.answer(ctx, system, subject+"\n\n"+again, r.Provider.Ask, readableFindings)
 		if err != nil {
 			return nil, Answer{}, err
 		}
@@ -343,8 +366,11 @@ func (r Reviewer) ask(ctx context.Context, job Job, subject string) ([]Finding, 
 
 // answer asks through the cache: the same question asked of the same
 // provider is replayed rather than asked, which is what makes a re-run
-// cheap where nothing it judges changed.
-func (r Reviewer) answer(ctx context.Context, system, user string, ask func(context.Context, string, string) (Answer, error)) (Answer, error) {
+// cheap where nothing it judges changed. Only an answer the caller can read
+// is recorded: a model that spent its whole budget and said nothing would
+// otherwise be replayed, and the job would fail the same way on every run
+// without ever asking again.
+func (r Reviewer) answer(ctx context.Context, system, user string, ask func(context.Context, string, string) (Answer, error), readable func(string) bool) (Answer, error) {
 	if r.Cache != nil {
 		if answer, ok := r.Cache.get(r.Provider.Name(), system, user); ok {
 			if r.Verbose {
@@ -354,10 +380,30 @@ func (r Reviewer) answer(ctx context.Context, system, user string, ask func(cont
 		}
 	}
 	answer, err := ask(ctx, system, user)
-	if err == nil && r.Cache != nil {
+	if err == nil && r.Cache != nil && readable(answer.Text) {
 		r.Cache.put(r.Provider.Name(), system, user, answer)
 	}
 	return answer, err
+}
+
+// readableFindings is whether an answer holds a findings object.
+func readableFindings(text string) bool {
+	raw, err := object(text)
+	if err != nil {
+		return false
+	}
+	_, err = decode(raw)
+	return err == nil
+}
+
+// readableVerdicts is whether an answer holds a verdicts object.
+func readableVerdicts(text string) bool {
+	raw, err := object(text)
+	if err != nil {
+		return false
+	}
+	_, err = decodeVerdicts(raw)
+	return err == nil
 }
 
 func (r Reviewer) spent(job Job, answer Answer) {
@@ -394,7 +440,7 @@ func (r Reviewer) verdicts(ctx context.Context, job Job, subject string, finding
 			position, f.Rule, f.Severity, where, f.Message, f.Fix)
 	}
 	user := subject + "\n\nThe findings reported against it:\n\n" + listed.String()
-	answer, err := r.answer(ctx, system, user, verdictAsk(r.Provider))
+	answer, err := r.answer(ctx, system, user, verdictAsk(r.Provider), readableVerdicts)
 	if err != nil {
 		return nil, answer, err
 	}
@@ -402,7 +448,7 @@ func (r Reviewer) verdicts(ctx context.Context, job Job, subject string, finding
 	raised, err := object(answer.Text)
 	if err != nil {
 		prose := first(answer.Text, 200)
-		answer, err = r.answer(ctx, system, user+"\n\n"+verdictsAgain, verdictAsk(r.Provider))
+		answer, err = r.answer(ctx, system, user+"\n\n"+verdictsAgain, verdictAsk(r.Provider), readableVerdicts)
 		if err != nil {
 			return nil, answer, err
 		}
@@ -411,15 +457,9 @@ func (r Reviewer) verdicts(ctx context.Context, job Job, subject string, finding
 			return nil, answer, fmt.Errorf("%w, twice: %s", err, prose)
 		}
 	}
-	var read struct {
-		Verdicts []struct {
-			Index  int    `json:"index"`
-			Holds  bool   `json:"holds"`
-			Reason string `json:"reason"`
-		} `json:"verdicts"`
-	}
-	if err := json.Unmarshal([]byte(raised), &read); err != nil {
-		return nil, answer, fmt.Errorf("the verdicts are not the shape asked for: %w", err)
+	read, err := decodeVerdicts(raised)
+	if err != nil {
+		return nil, answer, err
 	}
 	held := map[int]verdict{}
 	for _, v := range read.Verdicts {
@@ -428,6 +468,23 @@ func (r Reviewer) verdicts(ctx context.Context, job Job, subject string, finding
 		}
 	}
 	return held, answer, nil
+}
+
+// spokenVerdicts is the shape the second reading answers in.
+type spokenVerdicts struct {
+	Verdicts []struct {
+		Index  int    `json:"index"`
+		Holds  bool   `json:"holds"`
+		Reason string `json:"reason"`
+	} `json:"verdicts"`
+}
+
+func decodeVerdicts(raw string) (spokenVerdicts, error) {
+	var read spokenVerdicts
+	if err := json.Unmarshal([]byte(raw), &read); err != nil {
+		return spokenVerdicts{}, fmt.Errorf("the verdicts are not the shape asked for: %w", err)
+	}
+	return read, nil
 }
 
 // verdictAsk adapts whichever way a provider can be asked for verdicts —

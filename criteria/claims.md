@@ -20,4 +20,6 @@ one: a comment gets one finding.
 
 A comment that is merely wordy is not a finding. Only judge assertions that could be
 false. A comment saying what the code in front of it does is never a claim, however
-confidently it says it.
+confidently it says it. The code beneath each comment is shown so that `stale` can be
+judged against what the change actually does, and so that a comment describing that
+code is read as description rather than assertion.

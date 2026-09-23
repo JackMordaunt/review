@@ -321,3 +321,55 @@ func TestIndent(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// A commit-msg hook is given a file full of git's own commentary; only the
+// author's lines are the message.
+func TestReadMessage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
+	if err := os.WriteFile(path, []byte("review: measure it\n\nBecause.\n# Please enter the commit message\n#\n# On branch main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readMessage(path)
+	if err != nil || got != "review: measure it\n\nBecause." {
+		t.Errorf("got %q, %v", got, err)
+	}
+	if _, err := readMessage(filepath.Join(t.TempDir(), "nowhere")); err == nil {
+		t.Error("a missing file was read")
+	}
+}
+
+// A dismissed finding is named like the rest, so a loop can read back which
+// finding the source answered.
+func TestReportNamesDismissedFindings(t *testing.T) {
+	out := capture(t, func() {
+		if err := report(contract{
+			Version: contractVersion, Status: "complete",
+			Dismissed: []Dismissed{{Finding: Finding{Job: "static", Rule: "no-stutter", File: "x.go", Severity: Consider}, Why: "on purpose"}},
+		}); err != nil {
+			t.Error(err)
+		}
+	})
+	var env struct {
+		Dismissed []struct {
+			Finding struct {
+				ID       string `json:"id"`
+				Severity string `json:"severity"`
+			} `json:"finding"`
+		} `json:"dismissed"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		t.Fatal(err)
+	}
+	if len(env.Dismissed) != 1 || env.Dismissed[0].Finding.ID == "" || env.Dismissed[0].Finding.Severity != "consider" {
+		t.Errorf("got %+v", env.Dismissed)
+	}
+}
+
+func TestMustFix(t *testing.T) {
+	if mustFix([]Finding{{Severity: Consider}, {Severity: Note}}) {
+		t.Error("consider and note are not refusals")
+	}
+	if !mustFix([]Finding{{Severity: Note}, {Severity: MustFix}}) {
+		t.Error("a must-fix finding is")
+	}
+}

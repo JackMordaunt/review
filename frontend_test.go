@@ -103,10 +103,11 @@ func TestHeuristicLeavesProseAlone(t *testing.T) {
 
 func TestHeuristicLogsTheSkips(t *testing.T) {
 	r := newRepo(t)
-	r.write("f/main.rs", "fn main() {}\n")
-	r.commit("f: empty", "f/main.rs")
-	r.write("f/main.rs", "fn main() { }\n")
-	r.stage("f/main.rs")
+	// Lua has no frontend, so it is the heuristic's whatever is installed.
+	r.write("f/main.lua", "function main() end\n")
+	r.commit("f: empty", "f/main.lua")
+	r.write("f/main.lua", "function main()  end\n")
+	r.stage("f/main.lua")
 
 	var logged string
 	change, err := Gather("", r.Root)
@@ -116,10 +117,10 @@ func TestHeuristicLogsTheSkips(t *testing.T) {
 	logged = captureStderr(t, func() {
 		change.read(r.Root, "", frontends())
 	})
-	if !strings.Contains(logged, "skipping duplication, namer for .rs") {
+	if !strings.Contains(logged, "skipping duplication, namer for .lua") {
 		t.Fatalf("logged %q, want the duplication and namer skip", logged)
 	}
-	if !strings.Contains(logged, "skipping tests for .rs") {
+	if !strings.Contains(logged, "skipping tests for .lua") {
 		t.Fatalf("logged %q, want the tests skip", logged)
 	}
 	if strings.Contains(logged, "skipping claims") {

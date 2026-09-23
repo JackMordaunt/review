@@ -242,3 +242,21 @@ func TestFilePredicates(t *testing.T) {
 		}
 	}
 }
+
+func TestRemovedTestNameReadsEveryRunner(t *testing.T) {
+	for line, want := range map[string]string{
+		`Deno.test("deno string", () => {`:           "deno string",
+		`Deno.test.ignore("deno ignored", () => {`:   "deno ignored",
+		`  test.skip("bun skipped", () => {`:         "bun skipped",
+		`it.only("focused", () => {`:                 "focused",
+		`test('node plain', { timeout: 5 }, () => {`: "node plain",
+		`test.concurrent.only("both", async () => {`: "both",
+		`describe("suite", () => {`:                  "suite",
+		`Deno.test({ name: "object", fn() {`:         "",
+		`const test = 1;`:                            "",
+	} {
+		if got := removedTestName(line); got != want {
+			t.Errorf("%q: got %q, want %q", line, got, want)
+		}
+	}
+}

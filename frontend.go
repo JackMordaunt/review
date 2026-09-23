@@ -80,7 +80,7 @@ func frontends() []Frontend {
 	// The TypeScript frontend is only offered when ast-grep is installed; its
 	// files fall to the heuristic reader otherwise, which says why.
 	if _, err := exec.LookPath("ast-grep"); err == nil {
-		readers = append(readers, TSFrontend{})
+		readers = append(readers, TSFrontend{}, pythonFrontend(), rustFrontend())
 	}
 	// Same for the Odin sidecar, which is built from sidecar/odin in this
 	// repository.

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -19,11 +20,18 @@ import (
 // Check measures a change and reports what it noticed.
 type Check func(*Change) []Finding
 
-// Checks are the deterministic readings, each independent of the others.
+// Checks are the deterministic readings, each independent of the others:
+// the message, the history, the review's own mechanisms, and then the code
+// the change adds — its names, tests, bodies, comments and leftovers.
 func Checks() []Check {
-	// The last two hold the review to itself: the mechanisms a change could
-	// use to pass it are measured rather than trusted absent.
-	return []Check{checkEntropy, checkCompressibility, checkCommon, checkVenting, checkMood, checkBody, checkTemporal, checkSuppressionAdded, checkDeletedTests}
+	return []Check{
+		checkEntropy, checkCompressibility, checkCommon, checkVenting, checkMood, checkBody, checkFormatting, checkNamesUnknown,
+		checkTemporal,
+		checkSuppressionAdded, checkDeletedTests,
+		checkNames, checkTestAssertions, checkTautologies, checkClones, checkShape,
+		checkRestating, checkTodos, checkCommentedCode, checkDebugLeftovers, checkSwallowedErrors,
+		checkUnreferenced, checkCodeWithoutTests,
+	}
 }
 
 const (
@@ -110,7 +118,10 @@ func runChecks(change *Change) []Finding {
 // checkEntropy reports a message whose characters carry too little entropy:
 // the shape of a placeholder, a keyboard mash, or one phrase repeated.
 func checkEntropy(c *Change) []Finding {
-	msg, note := measured(c)
+	msg := measured(c)
+	if msg == "" {
+		return nil
+	}
 	if len(msg) < entropyFloor {
 		return nil
 	}
@@ -121,8 +132,8 @@ func checkEntropy(c *Change) []Finding {
 	return []Finding{{
 		Job: "static", Rule: "message-low-entropy", Severity: MustFix,
 		Message: fmt.Sprintf(
-			"the commit message measures %.1f bits of Shannon entropy per byte, under the %.1f beneath which a message is a phrase repeated rather than a description; ordinary messages measure 3.7 to 4.9%s",
-			h, minEntropy, note),
+			"the commit message measures %.1f bits of Shannon entropy per byte, under the %.1f beneath which a message is a phrase repeated rather than a description; ordinary messages measure 3.7 to 4.9",
+			h, minEntropy),
 		Fix: "write a message that says what the change does and why",
 	}}
 }
@@ -131,7 +142,10 @@ func checkEntropy(c *Change) []Finding {
 // shape of text pasted or repeated wholesale, such as a licence notice or a
 // log, rather than prose written for this change.
 func checkCompressibility(c *Change) []Finding {
-	msg, note := measured(c)
+	msg := measured(c)
+	if msg == "" {
+		return nil
+	}
 	if len(msg) < compressionFloor {
 		return nil
 	}
@@ -142,8 +156,8 @@ func checkCompressibility(c *Change) []Finding {
 	return []Finding{{
 		Job: "static", Rule: "message-boilerplate", Severity: MustFix,
 		Message: fmt.Sprintf(
-			"the commit message compresses to %.0f%% of its length, under the %.0f%% beneath which it is one block of text pasted or repeated rather than prose about the change; no written message measured keeps less than 26%%%s",
-			100*ratio, 100*maxCompression, note),
+			"the commit message compresses to %.0f%% of its length, under the %.0f%% beneath which it is one block of text pasted or repeated rather than prose about the change; no written message measured keeps less than 26%%",
+			100*ratio, 100*maxCompression),
 		Fix: "keep only what the reader needs of the quoted text, and write the rest",
 	}}
 }
@@ -154,7 +168,10 @@ func checkCompressibility(c *Change) []Finding {
 // like this cannot have, which is why a message holding any rarer word is
 // left to the reader.
 func checkCommon(c *Change) []Finding {
-	msg, note := measured(c)
+	msg := measured(c)
+	if msg == "" {
+		return nil
+	}
 	if len(c.History) < historyFloor {
 		return nil
 	}
@@ -187,16 +204,138 @@ func checkCommon(c *Change) []Finding {
 	return []Finding{{
 		Job: "static", Rule: "message-common-words", Severity: MustFix,
 		Message: fmt.Sprintf(
-			"the commit message is made of the repository's commonest commit words — %s — with nothing rarer than a fifth of its %d commit subjects, and it names nothing the change touches; a word the history has not used is the one thing a message like this cannot have%s",
-			strings.Join(listed, ", "), n, note),
+			"the commit message is made of the repository's commonest commit words — %s — with nothing rarer than a fifth of its %d commit subjects, and it names nothing the change touches; a word the history has not used is the one thing a message like this cannot have",
+			strings.Join(listed, ", "), n),
 		Fix: "name the part and the fault, in words the change itself uses",
 	}}
+}
+
+// identifierShaped matches the words of a message that name code rather
+// than describe it: a camel-cased or snake-cased word, a dotted or slashed
+// path, a call, or anything in backticks.
+var identifierShaped = regexp.MustCompile("`([^`]+)`|\\b([a-z][a-z0-9]*[A-Z][A-Za-z0-9]*)\\b|\\b([A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\\b|\\b([A-Za-z][A-Za-z0-9_]*\\(\\))|\\b([A-Za-z][A-Za-z0-9_-]*(?:[./][A-Za-z0-9_-]+)+\\.[a-z]{1,5})\\b")
+
+// links matches a URL in a message.
+var links = regexp.MustCompile(`\bhttps?://\S+`)
+
+// checkNamesUnknown reports a message that names an identifier the
+// repository does not hold: not in the diff, not in any file at the end of
+// the change, not a path in the tree. A message naming code that is not
+// there describes work the diff does not contain — usually a name remembered
+// wrong, sometimes a change that was never made.
+func checkNamesUnknown(c *Change) []Finding {
+	msg := measured(c)
+	if msg == "" || c.root == "" {
+		return nil
+	}
+	// A link's path is not a name the message uses.
+	msg = links.ReplaceAllString(msg, " ")
+	var names []string
+	seen := map[string]bool{}
+	for _, m := range identifierShaped.FindAllStringSubmatch(msg, -1) {
+		name := ""
+		for _, group := range m[1:] {
+			if group != "" {
+				name = group
+			}
+		}
+		name = strings.TrimSuffix(strings.TrimSpace(name), "()")
+		if name == "" || seen[name] || strings.ContainsAny(name, " \t") || strings.Contains(name, "://") || brandShaped(name) {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	tree, err := treeAt(c.root, c.rev)
+	if err != nil {
+		return nil
+	}
+	sources, err := tree.Sources()
+	if err != nil {
+		return nil
+	}
+	files, _ := tree.Files()
+	var missing []string
+	for _, name := range names {
+		if strings.Contains(c.Diff, name) || strings.Contains(c.Stat, name) {
+			continue
+		}
+		found := false
+		for _, f := range files {
+			if strings.Contains(f, name) {
+				found = true
+				break
+			}
+		}
+		for _, data := range sources {
+			if found {
+				break
+			}
+			if strings.Contains(string(data), name) {
+				found = true
+			}
+		}
+		if !found {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return []Finding{{
+		Job: "static", Rule: "message-names-unknown", Severity: Consider,
+		Message: fmt.Sprintf("the commit message names %s, and nothing by that name is in the diff or anywhere in the repository at the end of the change; a message naming code that is not there describes work the diff does not contain", quoted(missing)),
+		Fix:     "name what the change actually touches, as the code spells it",
+	}}
+}
+
+// brands are the product names written with an inner capital, which the
+// identifier shape mistakes for camel case. Measured: gRPC was the first.
+var brands = set(`gRPC iOS macOS iPadOS watchOS tvOS iPhone iPad iCloud eBay jQuery
+	PayPal YouTube GitHub GitLab OpenAI WebAssembly LaTeX TeX`)
+
+// brandShaped is whether a word is a product name rather than a name from
+// the code: on the list, or a short lowercase prefix before a run of
+// capitals, which is how gRPC and iOS are spelled and how no identifier is;
+// macOS is longer and on the list.
+func brandShaped(word string) bool {
+	if brands[word] {
+		return true
+	}
+	i := 0
+	for i < len(word) && word[i] >= 'a' && word[i] <= 'z' {
+		i++
+	}
+	if i == 0 || i > 2 || i == len(word) {
+		return false
+	}
+	for _, r := range word[i:] {
+		if r < 'A' || r > 'Z' {
+			return false
+		}
+	}
+	return true
+}
+
+// quoted joins names for a message, each in quotes.
+func quoted(names []string) string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = fmt.Sprintf("%q", n)
+	}
+	return strings.Join(out, ", ")
 }
 
 // checkVenting reports a message whose words are the author's reaction
 // rather than the change's description: oops, whoops, damn, profanity.
 func checkVenting(c *Change) []Finding {
-	msg, note := measured(c)
+	msg := measured(c)
+	if msg == "" {
+		return nil
+	}
 	var hit []string
 	for _, piece := range fields(msg) {
 		w := strings.ToLower(piece)
@@ -212,8 +351,8 @@ func checkVenting(c *Change) []Finding {
 	return []Finding{{
 		Job: "static", Rule: "message-frustration", Severity: MustFix,
 		Message: fmt.Sprintf(
-			"the commit message is an exclamation — %s — where a description should be; the log then records the author's feeling, and the change goes undescribed%s",
-			strings.Join(hit, ", "), note),
+			"the commit message is an exclamation — %s — where a description should be; the log then records the author's feeling, and the change goes undescribed",
+			strings.Join(hit, ", ")),
 		Fix: "describe the change, not the moment",
 	}}
 }
@@ -227,7 +366,10 @@ func checkVenting(c *Change) []Finding {
 // explainer may be a noun phrase on purpose, as the tool's own subjects
 // are.
 func checkMood(c *Change) []Finding {
-	msg, note := measured(c)
+	msg := measured(c)
+	if msg == "" {
+		return nil
+	}
 	subject := strings.SplitN(msg, "\n", 2)[0]
 	if strings.HasPrefix(subject, "Merge ") || strings.HasPrefix(subject, "Squashed ") {
 		return nil
@@ -254,8 +396,8 @@ func checkMood(c *Change) []Finding {
 	return []Finding{{
 		Job: "static", Rule: "message-not-imperative", Severity: MustFix,
 		Message: fmt.Sprintf(
-			"the commit message opens on %s — %q — where the discipline is a command: package: explainer, with the explainer in the imperative mood; a subject that opens in the past tense, on a gerund, or on the author records what was done rather than saying what to do%s",
-			what, quoted, note),
+			"the commit message opens on %s — %q — where the discipline is a command: package: explainer, with the explainer in the imperative mood; a subject that opens in the past tense, on a gerund, or on the author records what was done rather than saying what to do",
+			what, quoted),
 		Fix: "open the subject on its verb, in the imperative",
 	}}
 }
@@ -321,7 +463,10 @@ var nonVerbIng = map[string]bool{
 // what it did, owes nothing. Subjects of merges and squashes are git's
 // words, not the commit's.
 func checkBody(c *Change) []Finding {
-	msg, note := measured(c)
+	msg := measured(c)
+	if msg == "" {
+		return nil
+	}
 	subject := strings.SplitN(msg, "\n", 2)[0]
 	if strings.HasPrefix(subject, "Merge ") || strings.HasPrefix(subject, "Squashed ") {
 		return nil
@@ -331,8 +476,8 @@ func checkBody(c *Change) []Finding {
 		return []Finding{{
 			Job: "static", Rule: "message-long-body", Severity: MustFix,
 			Message: fmt.Sprintf(
-				"the commit message's body holds %d words, over the %d the discipline allows; past that a body lists what the diff already shows, and the reader of the log stops before the why%s",
-				n, maxBodyWords, note),
+				"the commit message's body holds %d words, over the %d the discipline allows; past that a body lists what the diff already shows, and the reader of the log stops before the why",
+				n, maxBodyWords),
 			Fix: "cut the body to the change's why",
 		}}
 	}
@@ -346,8 +491,8 @@ func checkBody(c *Change) []Finding {
 	return []Finding{{
 		Job: "static", Rule: "message-no-body", Severity: MustFix,
 		Message: fmt.Sprintf(
-			"the change is %d lines of diff, and the commit message carries no body; the diff records what moved, and the body is the only place the change's why is recorded%s",
-			changed, note),
+			"the change is %d lines of diff, and the commit message carries no body; the diff records what moved, and the body is the only place the change's why is recorded",
+			changed),
 		Fix: "write the body, saying why the change is what it is",
 	}}
 }
@@ -457,8 +602,7 @@ func moved(diff string) bool {
 	return n > 0
 }
 
-// bodyWords counts the words below the subject line. The staged note is not
-// the commit's words and is already gone from the measured message.
+// bodyWords counts the words below the subject line.
 func bodyWords(msg string) int {
 	parts := strings.SplitN(msg, "\n", 2)
 	if len(parts) == 1 {
@@ -589,16 +733,11 @@ func diffWords(c *Change) map[string]bool {
 	return out
 }
 
-// measured is the message the checks read, and, where the change is staged,
-// the note that what was measured is the previous commit's message rather
-// than the staged one's. The note itself is kept out of the measurement: it
-// is the tool's own words, not the commit's.
-func measured(c *Change) (msg, note string) {
-	msg = strings.TrimSpace(strings.TrimPrefix(c.Message, uncommittedNote))
-	if strings.HasPrefix(c.Message, uncommittedNote) {
-		note = " (measured on the previous commit's message: the change is staged, not committed)"
-	}
-	return msg, note
+// measured is the message the checks read. It is empty for a staged change
+// without a supplied message, and every message check says nothing then:
+// there is no message to measure, and the previous commit's is not it.
+func measured(c *Change) string {
+	return strings.TrimSpace(c.Message)
 }
 
 // shannonEntropy is the entropy of s in bits per byte, over its bytes. A

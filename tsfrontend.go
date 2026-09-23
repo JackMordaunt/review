@@ -10,16 +10,50 @@ import (
 	"strings"
 )
 
-// TSFrontend reads TypeScript through ast-grep, which matches its patterns
-// against the tree-sitter syntax tree rather than against lines. A pattern
-// over lines misses an indented constant inside a block; a query over syntax
-// does not, and the top-level constraint keeps function bodies out.
+// TSFrontend reads TypeScript and JavaScript through ast-grep, which
+// matches its patterns against the tree-sitter syntax tree rather than
+// against lines. A pattern over lines misses an indented constant inside a
+// block; a query over syntax does not, and the top-level constraint keeps
+// function bodies out.
 type TSFrontend struct{}
 
 func (TSFrontend) Name() string { return "typescript" }
 
 func (TSFrontend) Covers(path string) bool {
-	return strings.HasSuffix(path, ".ts") || strings.HasSuffix(path, ".tsx")
+	return grammarOf(path) != ""
+}
+
+// grammarOf is the ast-grep grammar a path is parsed with, or empty where
+// none of this frontend's grammars reads it.
+func grammarOf(path string) string {
+	switch filepath.Ext(path) {
+	case ".ts":
+		return "ts"
+	case ".tsx":
+		return "tsx"
+	case ".js", ".jsx", ".mjs", ".cjs":
+		return "js"
+	}
+	return ""
+}
+
+// scratchExt is the extension a file is materialised under, which is what
+// ast-grep infers the grammar from. The module variants of JavaScript are
+// the same grammar under another name.
+func scratchExt(path string) string {
+	switch ext := filepath.Ext(path); ext {
+	case ".mjs", ".cjs":
+		return ".js"
+	default:
+		return ext
+	}
+}
+
+// typed is whether a pattern needs TypeScript's grammar: an annotation, an
+// interface, a type alias or an enum is not JavaScript.
+func typed(pattern string) bool {
+	return strings.Contains(pattern, ": $$$") || strings.HasPrefix(strings.TrimPrefix(pattern, "export "), "type ") ||
+		strings.Contains(pattern, "interface ") || strings.Contains(pattern, "enum ")
 }
 
 func (TSFrontend) Features() Features {
@@ -62,10 +96,22 @@ var tsPatterns = []struct {
 	{"func", true, "export default function $N($$$P): $$$R { $$$B }"},
 }
 
-// tsTestPatterns bind the runner's calls. A test inside a describe block is
-// still a test, so these carry no top-level constraint; they are only ever
-// asked for, so a helper named test would not distract them elsewhere.
-var tsTestPatterns = []string{"test($S, $$$B)", "it($S, $$$B)"}
+// tsTestPatterns bind the runner's calls, in the shapes Node's node:test,
+// Bun's bun:test, Deno's Deno.test and the Jest family write them: the bare
+// call, a modifier such as skip, only, ignore or fails, a table through
+// each, Deno's object and named-function forms. A test inside a describe
+// block is still a test, so these carry no top-level constraint; they are
+// only ever asked for, so a helper named test would not distract them
+// elsewhere. The name is $S when the test is named by a string and $N when
+// by a function.
+var tsTestPatterns = []string{
+	"test($S, $$$B)", "it($S, $$$B)",
+	"test.$M($S, $$$B)", "it.$M($S, $$$B)",
+	"test.$M($$$T)($S, $$$B)", "it.$M($$$T)($S, $$$B)",
+	"Deno.test($S, $$$B)", "Deno.test.$M($S, $$$B)",
+	"Deno.test({ name: $S, $$$R })",
+	"Deno.test(function $N($$$P) { $$$B })",
+}
 
 // grepMatch is one ast-grep finding.
 type grepMatch struct {
@@ -98,6 +144,11 @@ func (m grepMatch) name() string {
 // writes the rules, and asks for the matches. The returned matches carry the
 // scratch path in File; the caller maps it back through the order given.
 func scan(files []string, root, rev string) ([]grepMatch, error) {
+	return scanWith(files, root, rev, writeRules)
+}
+
+// scanWith is scan for any grammar: the rules written are the caller's.
+func scanWith(files []string, root, rev string, rules func(dir string) error) ([]grepMatch, error) {
 	if len(files) == 0 {
 		return nil, nil
 	}
@@ -114,7 +165,7 @@ func scan(files []string, root, rev string) ([]grepMatch, error) {
 	if err := os.WriteFile(filepath.Join(dir, "sgconfig.yml"), []byte(config), 0o644); err != nil {
 		return nil, err
 	}
-	if err := writeRules(filepath.Join(dir, "rules")); err != nil {
+	if err := rules(filepath.Join(dir, "rules")); err != nil {
 		return nil, err
 	}
 
@@ -125,7 +176,7 @@ func scan(files []string, root, rev string) ([]grepMatch, error) {
 			continue // Deleted by the change, so there is nothing to read.
 		}
 		// The extension is kept: ast-grep infers the grammar from it.
-		scratch := filepath.Join(dir, fmt.Sprintf("%04d%s", i, filepath.Ext(name)))
+		scratch := filepath.Join(dir, fmt.Sprintf("%04d%s", i, scratchExt(name)))
 		if err := os.WriteFile(scratch, source, 0o644); err != nil {
 			return nil, err
 		}
@@ -164,8 +215,11 @@ func writeRules(dir string) error {
 			exported bool
 			pattern  string
 		}
-	}{{"ts", "TypeScript", tsPatterns}, {"tsx", "TSX", tsPatterns}} {
+	}{{"ts", "TypeScript", tsPatterns}, {"tsx", "TSX", tsPatterns}, {"js", "JavaScript", tsPatterns}} {
 		for i, p := range table.patterns {
+			if table.prefix == "js" && typed(p.pattern) {
+				continue
+			}
 			status := "plain"
 			if p.exported {
 				status = "export"
@@ -180,7 +234,7 @@ func writeRules(dir string) error {
 	for _, table := range []struct {
 		prefix   string
 		language string
-	}{{"ts", "TypeScript"}, {"tsx", "TSX"}} {
+	}{{"ts", "TypeScript"}, {"tsx", "TSX"}, {"js", "JavaScript"}} {
 		for i, pattern := range tsTestPatterns {
 			id := fmt.Sprintf("%s-test-%d", table.prefix, i)
 			body := fmt.Sprintf("id: %s\nlanguage: %s\nseverity: info\nrule:\n  pattern: %q\n", id, table.language, pattern)
@@ -251,12 +305,16 @@ func (g TSFrontend) Change(root, rev string, c *Change, added map[string][]int) 
 		if line-1 < len(lines[m.File]) {
 			signature = strings.TrimSpace(lines[m.File][line-1])
 		}
-		c.Symbols = append(c.Symbols, Symbol{
+		symbol := Symbol{
 			Name: name, Kind: ruleKind(m.Rule), Doc: docAbove(lines[m.File], line),
 			File: m.File, Line: line,
 			Exported:  strings.Contains(m.Rule, "export"),
 			Signature: signature,
-		})
+		}
+		if symbol.Kind == "func" {
+			symbol.Body = m.Text
+		}
+		c.Symbols = append(c.Symbols, symbol)
 	}
 	for _, name := range covered {
 		c.Comments = append(c.Comments, commentProse(sources[name], name, added[name])...)
@@ -267,13 +325,17 @@ func (g TSFrontend) Change(root, rev string, c *Change, added map[string][]int) 
 // Whole reads every top-level declaration in the repository's TypeScript
 // files, so a new name can be checked against the ones it may duplicate.
 func (g TSFrontend) Whole(root, rev string) ([]Declared, error) {
-	out, err := git(root, "ls-files", "*.ts", "*.tsx")
+	tree, err := treeAt(root, rev)
+	if err != nil {
+		return nil, err
+	}
+	tracked, err := tree.Files()
 	if err != nil {
 		return nil, err
 	}
 	var files []string
-	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
-		if name != "" && g.Covers(name) {
+	for _, name := range tracked {
+		if g.Covers(name) {
 			files = append(files, name)
 		}
 	}
@@ -303,7 +365,11 @@ func (g TSFrontend) Whole(root, rev string) ([]Declared, error) {
 				text = fileLines[line-1]
 			}
 		}
-		index = append(index, Declared{Name: name, Kind: ruleKind(m.Rule), File: m.File, Line: line, Text: text})
+		declared := Declared{Name: name, Kind: ruleKind(m.Rule), File: m.File, Line: line, Text: text}
+		if declared.Kind == "func" {
+			declared.Body = m.Text
+		}
+		index = append(index, declared)
 	}
 	return index, nil
 }
@@ -320,14 +386,17 @@ func ruleKind(rule string) string {
 }
 
 // docAbove collects the comment block ending on the line before the
-// declaration, as the doc a reader would attach to it.
+// declaration, as the doc a reader would attach to it, in the C-family
+// shapes and Python's.
 func docAbove(lines []string, line int) string {
 	var parts []string
 	for i := line - 2; i >= 0; i-- {
 		trimmed := strings.TrimSpace(lines[i])
-		if !strings.HasPrefix(trimmed, "//") && !strings.HasPrefix(trimmed, "*") && !strings.HasPrefix(trimmed, "/*") {
+		if !strings.HasPrefix(trimmed, "//") && !strings.HasPrefix(trimmed, "*") && !strings.HasPrefix(trimmed, "/*") &&
+			(!strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "#!")) {
 			break
 		}
+		trimmed = strings.TrimPrefix(trimmed, "#")
 		trimmed = strings.TrimPrefix(trimmed, "///")
 		trimmed = strings.TrimPrefix(trimmed, "//")
 		trimmed = strings.TrimPrefix(trimmed, "/**")

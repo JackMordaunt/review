@@ -19,6 +19,12 @@ whether they are tidy. The question is whether they can fail.
 Report the specific assertion at fault, and what to assert instead. Ignore style,
 naming and table-versus-loop questions entirely.
 
+A test that skips itself is marked with the line it skips on; your question about
+it is only whether the absence it skips on is ordinary. A test with no assertion
+at all is measured before you read, and is not yours to report unless the rule is
+another one. Where the functions the tests call are shown, judge `passes-on-a-stub`
+against the function's body, not against the test alone.
+
 ## Reading across languages
 
 A test body arrives whole however the language runs it: a Go `Test` function, a

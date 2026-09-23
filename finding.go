@@ -73,6 +73,9 @@ type Finding struct {
 	// Fix is the concrete change suggested, which is what lets an agent act
 	// on the finding rather than reason about it again.
 	Fix string `json:"fix,omitempty"`
+	// Snippet is the line the finding points at, as it stands, so that a
+	// program acting on the finding need not open the file to see it.
+	Snippet string `json:"snippet,omitempty"`
 	// Verified is what stands behind the finding. The deterministic checks
 	// and staticcheck verify themselves; a model's finding is verified when
 	// a second reading of the same evidence let it stand. A finding no
@@ -82,6 +85,10 @@ type Finding struct {
 	// not where it sits, so that a re-run of the same change names the same
 	// finding again and a loop can refer to one by name.
 	ID string `json:"id,omitempty"`
+
+	// part is which part of a split subject the finding came from, so the
+	// second reading sees the same evidence the first did.
+	part int
 }
 
 func (f Finding) String() string {
@@ -124,13 +131,23 @@ func Sort(findings []Finding) {
 	})
 }
 
-// identify gives a finding its short id. The line is left out of the hash:
-// lines move under edits that do not touch the finding, and an id that
-// changes with every re-run names nothing.
+// identify gives a finding its short id: a hash of what it is about, not
+// where it sits or how it was worded. The line is left out because lines
+// move under edits that do not touch the finding; a model's message is
+// left out because a fresh reading may word the same finding differently,
+// and an id that changed with the wording would name nothing. A
+// finding with no symbol is told from its neighbours by its line, and a
+// deterministic check's message is part of what it is about — the
+// coupled partner, the measured number — and is stable, so it stays in.
 func identify(f *Finding) {
-	h := sha256.Sum256([]byte(strings.Join([]string{
-		f.Job, f.Rule, f.File, f.Symbol, f.Message,
-	}, "\x00")))
+	parts := []string{f.Job, f.Rule, f.File, f.Symbol}
+	switch {
+	case f.Job == "static":
+		parts = append(parts, f.Message)
+	case f.Symbol == "":
+		parts = append(parts, strconv.Itoa(f.Line))
+	}
+	h := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	f.ID = hex.EncodeToString(h[:])[:12]
 }
 

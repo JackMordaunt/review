@@ -8,6 +8,13 @@ import (
 	"testing"
 )
 
+// TestMain removes the trees the tests materialised, as the command does.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	closeTrees()
+	os.Exit(code)
+}
+
 // repo builds a git repository in a temporary directory, so that the parts of
 // this tool that read a revision can be tested against real git output rather
 // than a transcript of it.

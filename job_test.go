@@ -395,3 +395,45 @@ func (r *relenting) Ask(ctx context.Context, system, user string) (Answer, error
 	}
 	return Answer{Text: r.answers[len(r.asked)-1]}, nil
 }
+
+// The tests job is pointed at a skip, and shown the functions the tests
+// call, so that whether a test passes on a stub is judged against the
+// function.
+func TestTestsSubjectShowsTheSkipAndTheCodeUnderTest(t *testing.T) {
+	change := &Change{
+		Tests: []Function{{Name: "TestDecode", File: "x_test.go", Line: 5, Skips: 7, Body: "func TestDecode(t *testing.T) {\n\tif !have {\n\t\tt.Skip()\n\t}\n\tgot := decode(in)\n\tcheck(t, got)\n}"}},
+		index: []Declared{
+			{Name: "decode", Kind: "func", File: "x.go", Line: 3, Body: "func decode(b []byte) []byte {\n\treturn b\n}"},
+			{Name: "check", Kind: "func", File: "x_test.go", Line: 30, Body: "func check(t *testing.T, b []byte) {}"},
+		},
+	}
+	got := testsSubject(change)
+	for _, want := range []string{"(skips itself at line 7)", "Functions the tests call", "--- x.go:3 decode", "return b"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q missing from:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "x_test.go:30") {
+		t.Errorf("a test file's helper was shown as code under test:\n%s", got)
+	}
+}
+
+// The claims job reads each comment beside the code it sits above, in the
+// blocks the comments were written as, without the ones that only narrate.
+func TestClaimsSubjectShowsTheCodeBelow(t *testing.T) {
+	change := &Change{Comments: []Located{
+		{Text: "set the name", File: "x.go", Line: 3, Below: "setName(x)"},
+		{Text: "Windows refuses an unordered group, so", File: "x.go", Line: 7, Below: "sort(rows)"},
+		{Text: "the rows are sorted first.", File: "x.go", Line: 8, Below: "sort(rows)"},
+	}}
+	got := claimsSubject(change)
+	if strings.Contains(got, "set the name") {
+		t.Errorf("a narrating comment reached the claims job:\n%s", got)
+	}
+	if strings.Count(got, "code: sort(rows)") != 1 {
+		t.Errorf("the code below a block is shown once:\n%s", got)
+	}
+	if !strings.Contains(got, "x.go:7") || !strings.Contains(got, "x.go:8") {
+		t.Errorf("the block is incomplete:\n%s", got)
+	}
+}

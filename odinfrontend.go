@@ -115,51 +115,63 @@ func (g OdinFrontend) Change(root, rev string, c *Change, added map[string][]int
 		for _, line := range added[name] {
 			touched[line] = true
 		}
+		source, err := at(root, rev, name)
+		if err != nil {
+			continue // Deleted by the change, so there is nothing to read.
+		}
+		lines := strings.Split(string(source), "\n")
+		pkg := odinPackage(lines)
 		for _, decl := range byFile[name] {
 			if !touched[decl.Line] {
 				continue
 			}
+			end := min(decl.EndLine, len(lines))
 			if decl.Test {
-				source, err := at(root, rev, name)
-				if err != nil {
-					continue
-				}
-				lines := strings.Split(string(source), "\n")
-				end := decl.EndLine
-				if end > len(lines) {
-					end = len(lines)
-				}
 				c.Tests = append(c.Tests, Function{
 					Name: decl.Name, File: name, Line: decl.Line,
 					Body: text(lines, decl.Line, end),
 				})
 				continue
 			}
-			c.Symbols = append(c.Symbols, Symbol{
+			symbol := Symbol{
 				Name: decl.Name, Kind: decl.Kind, Doc: decl.Doc,
 				File: name, Line: decl.Line,
-				Exported: decl.Exported, Signature: decl.Text,
-			})
-		}
-		source, err := at(root, rev, name)
-		if err != nil {
-			continue
+				Exported: decl.Exported, Signature: decl.Text, Package: pkg,
+			}
+			if decl.Kind == "func" {
+				symbol.Body = text(lines, decl.Line, end)
+			}
+			c.Symbols = append(c.Symbols, symbol)
 		}
 		c.Comments = append(c.Comments, commentProse(source, name, added[name])...)
 	}
 	return nil
 }
 
+// odinPackage is the package a file declares, read from its package line.
+func odinPackage(lines []string) string {
+	for _, line := range lines {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "package "); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
+}
+
 // Whole reads every declaration in the repository's Odin files, so a new
 // name can be checked against the ones it may duplicate.
 func (g OdinFrontend) Whole(root, rev string) ([]Declared, error) {
-	out, err := git(root, "ls-files", "*.odin")
+	tree, err := treeAt(root, rev)
+	if err != nil {
+		return nil, err
+	}
+	tracked, err := tree.Files()
 	if err != nil {
 		return nil, err
 	}
 	var files []string
-	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
-		if name != "" && g.Covers(name) {
+	for _, name := range tracked {
+		if g.Covers(name) {
 			files = append(files, name)
 		}
 	}
@@ -169,11 +181,19 @@ func (g OdinFrontend) Whole(root, rev string) ([]Declared, error) {
 	}
 	var index []Declared
 	for _, name := range files {
+		var lines []string
+		if source, err := tree.Read(name); err == nil {
+			lines = strings.Split(string(source), "\n")
+		}
 		for _, decl := range byFile[name] {
 			if decl.Test {
 				continue // Tests are not facts with two owners.
 			}
-			index = append(index, Declared{Name: decl.Name, Kind: decl.Kind, File: name, Line: decl.Line, Text: decl.Text})
+			declared := Declared{Name: decl.Name, Kind: decl.Kind, File: name, Line: decl.Line, Text: decl.Text}
+			if decl.Kind == "func" {
+				declared.Body = text(lines, decl.Line, min(decl.EndLine, len(lines)))
+			}
+			index = append(index, declared)
 		}
 	}
 	return index, nil

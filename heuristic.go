@@ -15,11 +15,12 @@ func (Heuristic) Name() string { return "heuristic" }
 
 // Covers reports the languages whose comment shape it knows. Prose-only
 // formats (markdown, configs) are left out: their text is not a comment, and
-// the claims job would be asked to judge ordinary writing.
+// the claims job would be asked to judge ordinary writing. Python and Rust
+// are here for when ast-grep is absent; with it, their frontends read first.
 func (Heuristic) Covers(path string) bool {
 	for _, ext := range []string{
 		".odin", ".py", ".rb", ".rs", ".c", ".h", ".cc", ".cpp", ".hpp",
-		".js", ".mjs", ".cjs", ".lua", ".zig", ".swift", ".kt", ".java",
+		".js", ".jsx", ".mjs", ".cjs", ".lua", ".zig", ".swift", ".kt", ".java",
 		".php", ".scala", ".cs",
 	} {
 		if strings.HasSuffix(path, ext) {

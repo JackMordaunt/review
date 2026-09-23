@@ -41,6 +41,9 @@ func (g GoFrontend) Change(root, rev string, c *Change, added map[string][]int) 
 		}
 		lines := strings.Split(string(source), "\n")
 		touched := added[name]
+		for _, imported := range file.Imports {
+			c.Imports[name] = append(c.Imports[name], importName(imported))
+		}
 
 		ast.Inspect(file, func(n ast.Node) bool {
 			switch decl := n.(type) {
@@ -69,6 +72,7 @@ func (g GoFrontend) Change(root, rev string, c *Change, added map[string][]int) 
 					Name: name, Kind: "func", Doc: doc(decl.Doc),
 					File: relative(root, path), Line: line,
 					Exported: ast.IsExported(name), Signature: strings.TrimSpace(lines[line-1]),
+					Body: text(lines, line, end), Package: file.Name.Name,
 				})
 			case *ast.TypeSpec:
 				line := fset.Position(decl.Pos()).Line
@@ -78,6 +82,7 @@ func (g GoFrontend) Change(root, rev string, c *Change, added map[string][]int) 
 				c.Symbols = append(c.Symbols, Symbol{
 					Name: decl.Name.Name, Kind: "type", File: relative(root, path), Line: line,
 					Exported: ast.IsExported(decl.Name.Name), Signature: strings.TrimSpace(lines[line-1]),
+					Package: file.Name.Name,
 				})
 			case *ast.ValueSpec:
 				for _, ident := range decl.Names {
@@ -88,6 +93,7 @@ func (g GoFrontend) Change(root, rev string, c *Change, added map[string][]int) 
 					c.Symbols = append(c.Symbols, Symbol{
 						Name: ident.Name, Kind: "value", File: relative(root, path), Line: line,
 						Exported: ast.IsExported(ident.Name), Signature: strings.TrimSpace(lines[line-1]),
+						Package: file.Name.Name,
 					})
 				}
 			}
@@ -114,16 +120,20 @@ func (g GoFrontend) Change(root, rev string, c *Change, added map[string][]int) 
 // rather than by searching: a pattern over lines misses an indented constant
 // inside a block, which is exactly where a duplicated fact tends to live.
 func (GoFrontend) Whole(root, rev string) ([]Declared, error) {
-	out, err := git(root, "ls-files", "*.go")
+	tree, err := treeAt(root, rev)
+	if err != nil {
+		return nil, err
+	}
+	tracked, err := tree.Files()
 	if err != nil {
 		return nil, err
 	}
 	var index []Declared
-	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
-		if name == "" || strings.HasSuffix(name, "_test.go") {
+	for _, name := range tracked {
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		source, err := at(root, rev, name)
+		source, err := tree.Read(name)
 		if err != nil {
 			continue
 		}
@@ -144,7 +154,8 @@ func (GoFrontend) Whole(root, rev string) ([]Declared, error) {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
 				line, text := at(d.Pos())
-				index = append(index, Declared{Name: d.Name.Name, Kind: "func", File: name, Line: line, Text: text})
+				end := fset.Position(d.End()).Line
+				index = append(index, Declared{Name: d.Name.Name, Kind: "func", File: name, Line: line, Text: text, Body: bodyOf(lines, line, end)})
 			case *ast.GenDecl:
 				for _, spec := range d.Specs {
 					switch s := spec.(type) {
@@ -172,6 +183,25 @@ func (GoFrontend) Whole(root, rev string) ([]Declared, error) {
 		}
 	}
 	return index, nil
+}
+
+// bodyOf is text, under a name the closure over a line's text does not
+// shadow.
+var bodyOf = text
+
+// importName is the name an import binds in the file: its alias where it
+// has one, else the last element of its path.
+func importName(spec *ast.ImportSpec) string {
+	if spec.Name != nil {
+		return spec.Name.Name
+	}
+	path := strings.Trim(spec.Path.Value, `"`)
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		path = path[i+1:]
+	}
+	// A versioned module path ends in its major version, which binds the
+	// element before it.
+	return path
 }
 
 // isTest reports whether a function is one the testing package runs.

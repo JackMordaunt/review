@@ -108,6 +108,53 @@ describe('icons', () => {
 	}
 }
 
+func TestTypeScriptReadsEveryRunnersTests(t *testing.T) {
+	needAstGrep(t)
+	r := newRepo(t)
+	r.write("src/deno_test.ts", `import { assertEquals } from "@std/assert";
+Deno.test("deno string", () => { assertEquals(1, 1); });
+Deno.test({ name: "deno object", fn() { assertEquals(2, 2); } });
+Deno.test(function denoNamed() { assertEquals(3, 3); });
+Deno.test.ignore("deno ignored", () => { assertEquals(4, 4); });
+`)
+	r.write("src/bun.test.ts", `import { test, it, expect } from "bun:test";
+test.skip("bun skipped", () => { expect(1).toBe(1); });
+it.only("bun focused", () => { expect(1).toBe(1); });
+test.each([[1]])("bun each %i", (a) => { expect(a).toBe(1); });
+test("bun plain", async () => { expect(1).toBe(1); });
+`)
+	r.write("src/node.test.js", `import { test } from "node:test";
+import assert from "node:assert";
+test("node plain", { timeout: 5 }, () => { assert.equal(1, 1); });
+test.todo("node todo", () => { assert.ok(true); });
+`)
+	r.write("src/.keep", "")
+	r.commit("ts: begin", "src/.keep")
+	rev := r.commit("ts: tests", "src/deno_test.ts", "src/bun.test.ts", "src/node.test.js")
+
+	change, err := Gather(rev+"^.."+rev, r.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{}
+	for _, test := range change.Tests {
+		names = append(names, test.Name)
+	}
+	want := []string{
+		"deno string", "deno object", "denoNamed", "deno ignored",
+		"bun skipped", "bun focused", "bun each %i", "bun plain",
+		"node plain", "node todo",
+	}
+	for _, w := range want {
+		if !slices.Contains(names, w) {
+			t.Errorf("tests %v, want %q among them", names, w)
+		}
+	}
+	if len(names) != len(want) {
+		t.Errorf("tests %v: %d, want %d", names, len(names), len(want))
+	}
+}
+
 func TestTypeScriptReadsDocComments(t *testing.T) {
 	needAstGrep(t)
 	r := newRepo(t)
@@ -186,5 +233,61 @@ function local() {}
 		if strings.Contains(name, "owners") {
 			t.Errorf("test file name %s indexed", name)
 		}
+	}
+}
+
+// JavaScript is the same grammar without the types, and reads through the
+// same frontend: declarations, tests and bodies.
+func TestJavaScriptReadsDeclarations(t *testing.T) {
+	needAstGrep(t)
+	r := newRepo(t)
+	r.write("src/.keep", "")
+	r.commit("js: begin", "src/.keep")
+	r.write("src/icons.js", `export const maxIcons = 12;
+const hidden = 4;
+export function readIcons(src) { return []; }
+function helper() { return hidden; }
+`)
+	r.write("src/icons.test.js", `test('reads icons', () => { expect(readIcons('x')).toEqual([]); });
+`)
+	r.write("src/app.jsx", `export function App() { return <div/>; }
+`)
+	rev := r.commit("js: first", "src/icons.js", "src/icons.test.js", "src/app.jsx")
+
+	change, err := Gather(rev+"^.."+rev, r.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Symbol{}
+	for _, s := range change.Symbols {
+		got[s.Name] = s
+	}
+	for name, want := range map[string]struct {
+		kind     string
+		exported bool
+	}{
+		"maxIcons":  {"value", true},
+		"hidden":    {"value", false},
+		"readIcons": {"func", true},
+		"helper":    {"func", false},
+		"App":       {"func", true},
+	} {
+		s, ok := got[name]
+		if !ok {
+			t.Errorf("%s not read", name)
+			continue
+		}
+		if s.Kind != want.kind || s.Exported != want.exported {
+			t.Errorf("%s: got %s exported=%v, want %s exported=%v", name, s.Kind, s.Exported, want.kind, want.exported)
+		}
+	}
+	if got["readIcons"].Body == "" {
+		t.Error("a function's body was not read")
+	}
+	if len(change.Tests) != 1 || change.Tests[0].Name != "reads icons" {
+		t.Errorf("tests: %v", change.Tests)
+	}
+	if len(change.Uncovered) != 0 {
+		t.Errorf("uncovered: %v", change.Uncovered)
 	}
 }

@@ -85,11 +85,14 @@ var ruleID = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 var goTest = regexp.MustCompile(`^func ((?:Test|Benchmark|Fuzz)[A-Za-z0-9_]+)\(`)
 
 // jsTestCall is a test's registration in the JavaScript and TypeScript
-// shapes, with the skipping and focusing modifiers read through.
-var jsTestCall = regexp.MustCompile(`^(?:test|describe|it)(?:\.(?:skip|only|todo|fails))*\(`)
+// shapes — Node, Bun, Deno and the Jest family — with the skipping and
+// focusing modifiers read through.
+var jsTestCall = regexp.MustCompile(`^(?:Deno\.test|test|describe|it)(?:\.(?:skip|only|todo|fails|failing|ignore|concurrent|serial))*\(`)
 
 // isTestFile reports whether a path is one a test runner reads, in any of the
-// naming habits the tool's languages have.
+// naming habits the tool's languages have: a marker in the name, or a tests
+// directory. A Rust unit test sits in the source file beside the code, and
+// that file is not a test file; an integration test under tests/ is.
 func isTestFile(path string) bool {
 	base := filepath.Base(path)
 	for _, marker := range []string{"_test.", ".test.", ".spec."} {
@@ -97,8 +100,26 @@ func isTestFile(path string) bool {
 			return true
 		}
 	}
+	if strings.HasSuffix(base, ".py") && (strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py")) {
+		return true
+	}
+	for dir := range strings.SplitSeq(filepath.ToSlash(filepath.Dir(path)), "/") {
+		if dir == "tests" || dir == "__tests__" || dir == "test" {
+			return true
+		}
+	}
 	return false
 }
+
+// pyTest is a Python test's declaration, as a removed line carries it.
+var pyTest = regexp.MustCompile(`^(?:async\s+)?def (test_\w+)\(`)
+
+// rsTestAttribute is the attribute that makes the Rust function after it a
+// test; rsFn is that function's declaration.
+var (
+	rsTestAttribute = regexp.MustCompile(`^#\[[\w:]*test(\(|\])`)
+	rsFn            = regexp.MustCompile(`^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn (\w+)\(`)
+)
 
 // checkDeletedTests reports the tests a change deletes. The tests job reads
 // the tests a change adds or alters, and a test is never heard from again
@@ -112,13 +133,23 @@ func checkDeletedTests(c *Change) []Finding {
 	spoken := addedTestNames(added)
 	var findings []Finding
 	for _, file := range slices.Sorted(maps.Keys(removed)) {
-		if !isTestFile(file) {
+		if !isTestFile(file) && !strings.HasSuffix(file, ".rs") {
 			continue
 		}
 		var names []string
 		seen := map[string]bool{}
-		for _, text := range removed[file] {
+		for i, text := range removed[file] {
 			name := removedTestName(text)
+			if strings.HasSuffix(file, ".rs") {
+				// A Rust test is the function after the attribute, and
+				// only that; a deleted function without one is not a test.
+				name = ""
+				if rsTestAttribute.MatchString(strings.TrimSpace(text)) && i+1 < len(removed[file]) {
+					if m := rsFn.FindStringSubmatch(strings.TrimSpace(removed[file][i+1])); m != nil {
+						name = m[1]
+					}
+				}
+			}
 			if name == "" || seen[name] {
 				continue
 			}
@@ -160,6 +191,9 @@ func removedTestName(text string) string {
 	if m := goTest.FindStringSubmatch(trimmed); m != nil {
 		return m[1]
 	}
+	if m := pyTest.FindStringSubmatch(trimmed); m != nil {
+		return m[1]
+	}
 	if loc := jsTestCall.FindStringSubmatchIndex(trimmed); loc != nil {
 		return readQuoted(strings.TrimLeft(trimmed[loc[1]:], " \t"))
 	}
@@ -191,6 +225,10 @@ func addedTestNames(added map[string][]diffLine) []string {
 		for _, l := range lines {
 			trimmed := strings.TrimLeft(l.Text, " \t")
 			if m := goTest.FindStringSubmatch(trimmed); m != nil {
+				seen[m[1]] = true
+			} else if m := pyTest.FindStringSubmatch(trimmed); m != nil {
+				seen[m[1]] = true
+			} else if m := rsFn.FindStringSubmatch(trimmed); m != nil {
 				seen[m[1]] = true
 			} else if loc := jsTestCall.FindStringSubmatchIndex(trimmed); loc != nil {
 				if name := readQuoted(strings.TrimLeft(trimmed[loc[1]:], " \t")); name != "" {

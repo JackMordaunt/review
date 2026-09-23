@@ -3,8 +3,6 @@ package main
 import (
 	"cmp"
 	"fmt"
-	"maps"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -20,7 +18,8 @@ type Change struct {
 	Diff string
 	// Files are the paths it touches.
 	Files []string
-	// Message is the commit message under review.
+	// Message is the commit message under review. Empty for a staged change
+	// unless the caller supplied one, and then nothing measures it.
 	Message string
 	// Stat is the per-file line counts, which is enough to notice a commit
 	// doing two things without reading either.
@@ -56,6 +55,22 @@ type Change struct {
 	// change touches: how many commits touch each, and which other files
 	// those commits also touched. Nil when the history says nothing.
 	Temporal *Temporal
+	// Imports names, per file, the packages the file imports, for the
+	// languages whose frontend reads them. A new name that shadows one is
+	// measured against this.
+	Imports map[string][]string
+	// Changed is how many lines the diff adds and removes, counted by git
+	// over the whole change rather than the capped diff; Whitespace is how
+	// many of them change nothing but whitespace. The formatting check
+	// reads both.
+	Changed, Whitespace int
+
+	// index is every declaration in the repository at the end of the
+	// change, kept for the readings that judge new work against it.
+	index []Declared
+	// root and rev locate the tree the change arrives at, for the checks
+	// that read the repository rather than the diff.
+	root, rev string
 }
 
 // Temporal is the counted history of the files a change touches.
@@ -84,6 +99,12 @@ type Symbol struct {
 	// Signature is the declaration line, which is what a name has to be
 	// judged against.
 	Signature string `json:"signature,omitempty"`
+	// Body is the whole declaration where it has a body: a function's, for
+	// the checks that measure one.
+	Body string `json:"body,omitempty"`
+	// Package is the package the file declares, where the language has
+	// one; a name is measured against it for stutter.
+	Package string `json:"package,omitempty"`
 }
 
 // Function is a whole function, which the test job needs because a test can
@@ -93,6 +114,10 @@ type Function struct {
 	File string `json:"file"`
 	Line int    `json:"line"`
 	Body string `json:"body"`
+	// Skips is the line the test skips itself on, or zero. It is read from
+	// the body by shape, so the reading that judges the skip is pointed at
+	// it rather than left to find it.
+	Skips int `json:"skips,omitempty"`
 }
 
 // Located is a line of prose and where it came from.
@@ -100,11 +125,10 @@ type Located struct {
 	Text string `json:"text"`
 	File string `json:"file"`
 	Line int    `json:"line"`
+	// Below is the code the comment sits above, a few lines of it, so
+	// that a claim about behaviour can be read beside the behaviour.
+	Below string `json:"below,omitempty"`
 }
-
-// uncommittedNote is what a message read for a staged change says instead of
-// claiming to be one: git has no message for a commit that does not exist.
-const uncommittedNote = "(uncommitted; the message below is the previous commit's)\n"
 
 // Gap is a file the deterministic side could not read at all, and
 // why. It is reported rather than skipped silently, because a job that
@@ -118,31 +142,6 @@ type Gap struct {
 // maxDiff caps what is sent. A change larger than this is reviewed by its
 // parts rather than badly as a whole.
 const maxDiff = 60000
-
-// at reads a file as it stands at the end of the change under review, so that
-// reviewing an old commit reads the code that commit left behind rather than
-// whatever the working tree holds now.
-func at(root, rev, path string) ([]byte, error) {
-	after, ranged := ends(rev)
-	if !ranged {
-		// The diff for a bare revision runs from it to the working tree, so
-		// the working tree is where the change arrived.
-		return os.ReadFile(filepath.Join(root, path))
-	}
-	cmd := exec.Command("git", "show", after+":"+path)
-	cmd.Dir = root
-	return cmd.Output()
-}
-
-// ends reports the revision a range arrives at, and whether it is a range at
-// all. Both A..B and A...B are reviewed as B.
-func ends(rev string) (string, bool) {
-	_, after, found := strings.Cut(rev, "..")
-	if !found {
-		return rev, false
-	}
-	return strings.TrimPrefix(after, "."), true
-}
 
 // Gather collects the change at a revision range, or the staged change when
 // the range is empty.
@@ -161,10 +160,18 @@ func Gather(rev string, root string) (*Change, error) {
 		statArgs = []string{"diff", rev, "--stat"}
 	}
 
-	change := &Change{Candidates: map[string][]string{}, Twins: map[string][]string{}}
+	change := &Change{Candidates: map[string][]string{}, Twins: map[string][]string{}, Imports: map[string][]string{}, root: root, rev: rev}
 	var err error
 	if change.Diff, err = git(root, diffArgs...); err != nil {
 		return nil, err
+	}
+	// The whitespace-only lines are what the diff loses when git is asked
+	// to ignore whitespace; the difference is the formatting mixed in.
+	if plain, err := git(root, append(numstat(rev), "--numstat")...); err == nil {
+		if loose, err := git(root, append(numstat(rev), "-w", "--numstat")...); err == nil {
+			change.Changed = countNumstat(plain)
+			change.Whitespace = change.Changed - countNumstat(loose)
+		}
 	}
 	if len(change.Diff) > maxDiff {
 		change.Diff = change.Diff[:maxDiff] + "\n… diff truncated\n"
@@ -182,10 +189,11 @@ func Gather(rev string, root string) (*Change, error) {
 	if change.Stat, err = git(root, statArgs...); err != nil {
 		return nil, err
 	}
-	if rev == "" {
-		change.Message, _ = git(root, "log", "-1", "--format=%B")
-		change.Message = uncommittedNote + change.Message
-	} else {
+	// A staged change has no message: git has none for a commit that does
+	// not exist, and the previous commit's would be measured against work
+	// it never described. The caller may supply one, as a commit-msg hook
+	// does.
+	if rev != "" {
 		change.Message, _ = git(root, "log", "-1", "--format=%B", strings.TrimSuffix(rev, "^"))
 	}
 	if subjects, err := git(root, "log", "-12", "--format=%s"); err == nil {
@@ -206,7 +214,83 @@ func Gather(rev string, root string) (*Change, error) {
 	change.read(root, rev, frontends())
 	change.findCandidates(root, rev, frontends())
 	change.readTemporal(root, rev)
+	change.annotate(root, rev)
 	return change, nil
+}
+
+// numstat is the diff command for the change, without its format, so that
+// the same change can be counted with and without whitespace.
+func numstat(rev string) []string {
+	if rev == "" {
+		return []string{"diff", "--cached"}
+	}
+	return []string{"diff", rev}
+}
+
+// countNumstat sums the lines added and removed over git's --numstat
+// output. A binary file's counts are dashes and count nothing.
+func countNumstat(out string) int {
+	n := 0
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		n += atoi(fields[0]) + atoi(fields[1])
+	}
+	return n
+}
+
+// annotate adds to what the frontends read the parts that every language
+// shares: the code below each comment, and the line a test skips itself
+// on. Both are read by shape from the source, once per file.
+func (c *Change) annotate(root, rev string) {
+	sources := map[string][]string{}
+	lines := func(name string) []string {
+		if l, ok := sources[name]; ok {
+			return l
+		}
+		data, err := at(root, rev, name)
+		if err != nil {
+			sources[name] = nil
+			return nil
+		}
+		sources[name] = strings.Split(string(data), "\n")
+		return sources[name]
+	}
+	for i := range c.Comments {
+		c.Comments[i].Below = codeBelow(lines(c.Comments[i].File), c.Comments[i].Line)
+	}
+	for i := range c.Tests {
+		c.Tests[i].Skips = skipLine(c.Tests[i])
+	}
+}
+
+// belowLines is how much code a comment is shown beside.
+const belowLines = 2
+
+// codeBelow is the code that follows a comment: the first lines after it
+// that are neither blank nor comment, up to belowLines of them.
+func codeBelow(lines []string, comment int) string {
+	var out []string
+	for i := comment; i < len(lines) && len(out) < belowLines; i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" || isCommentLine(trimmed) {
+			if len(out) > 0 {
+				break
+			}
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return strings.Join(out, "\n")
+}
+
+// isCommentLine is whether a trimmed line is a comment by the shapes the
+// tool's languages share.
+func isCommentLine(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") ||
+		strings.HasPrefix(trimmed, "*") || (strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, "#!"))
 }
 
 // The counting window and width: the coupling is counted over the last
@@ -324,35 +408,26 @@ func (c *Change) readTemporal(root, rev string) {
 
 // remaining reports which of the partner paths are still files at the end
 // of the change: a partner the tree no longer holds is history's partner,
-// not this change's. A review of a range asks git once for all of them;
-// one of the working tree asks the filesystem.
+// not this change's.
 func (c *Change) remaining(root, rev string, pairs map[string]map[string]int) map[string]bool {
-	all := map[string]bool{}
-	for _, ps := range pairs {
-		for name := range ps {
-			all[name] = true
-		}
-	}
 	out := map[string]bool{}
-	after, ranged := ends(rev)
-	if !ranged {
-		for name := range all {
-			if _, err := os.Stat(filepath.Join(root, name)); err == nil {
-				out[name] = true
-			}
-		}
+	tree, err := treeAt(root, rev)
+	if err != nil {
 		return out
 	}
-	args := append([]string{"ls-tree", "--name-only", after, "--"}, slices.Collect(maps.Keys(all))...)
-	if ls, err := git(root, args...); err == nil {
-		for _, line := range strings.Split(ls, "\n") {
-			if line = strings.TrimSpace(line); line != "" {
-				out[line] = true
+	for _, ps := range pairs {
+		for name := range ps {
+			if tree.Exists(name) {
+				out[name] = true
 			}
 		}
 	}
 	return out
 }
+
+// shortlist is how many resembling declarations a new name is shown
+// beside, ranked; the twins come before them and are not counted.
+const shortlist = 12
 
 // findCandidates gathers, for every new name, the existing declarations that
 // might already mean the same thing. Finding them is the cheap part; judging
@@ -369,6 +444,7 @@ func (c *Change) findCandidates(root, rev string, frontends []Frontend) {
 		}
 		index = append(index, declared...)
 	}
+	c.index = index
 	// A constant holding the same literal as a new one is the strongest hint
 	// a fact has been written twice, so it goes first where it exists.
 	for _, symbol := range c.Symbols {
@@ -384,7 +460,7 @@ func (c *Change) findCandidates(root, rev string, frontends []Frontend) {
 		if len(twins) > 0 {
 			c.Twins[symbol.Name] = twins
 		}
-		c.Candidates[symbol.Name] = slices.Concat(twins, Resembling(index, symbol, 16))
+		c.Candidates[symbol.Name] = slices.Concat(twins, Resembling(index, symbol, shortlist))
 	}
 }
 
@@ -500,4 +576,19 @@ func git(root string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	return string(out), nil
+}
+
+// skipLine is the line, within the test's body, on which it skips itself:
+// the shapes are t.Skip and its variants in Go, test.skip and it.skip in
+// TypeScript, and testing.skip in Odin. Zero when it does not.
+func skipLine(t Function) int {
+	for i, line := range strings.Split(t.Body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		for _, shape := range []string{"t.Skip(", "t.Skipf(", "t.SkipNow(", "test.skip(", "it.skip(", "describe.skip(", "this.skip(", "testing.skip(", "t.skip(", "pytest.skip(", "pytest.mark.skip", "self.skipTest(", "unittest.skip"} {
+			if strings.Contains(trimmed, shape) {
+				return t.Line + i
+			}
+		}
+	}
+	return 0
 }

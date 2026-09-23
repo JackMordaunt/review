@@ -397,3 +397,44 @@ func TestIsTest(t *testing.T) {
 		}
 	}
 }
+
+// The Go frontend reads what the later checks measure: a function's body
+// and package, the file's imports, and the code beneath each comment.
+func TestGatherReadsBodiesPackagesImportsAndContext(t *testing.T) {
+	r := newRepo(t)
+	r.write("x.go", "package x\n")
+	r.commit("first", "x.go")
+	r.write("x.go", `package x
+
+import (
+	"fmt"
+	str "strings"
+)
+
+// Shout says it louder.
+func Shout(s string) string {
+	return str.ToUpper(fmt.Sprint(s))
+}
+`)
+	r.stage("x.go")
+	change, err := Gather("", r.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(change.Symbols) != 1 {
+		t.Fatalf("symbols: %v", change.Symbols)
+	}
+	s := change.Symbols[0]
+	if s.Package != "x" || !strings.Contains(s.Body, "return str.ToUpper") || !strings.HasPrefix(s.Body, "func Shout") {
+		t.Errorf("got %+v", s)
+	}
+	if imports := change.Imports["x.go"]; len(imports) != 2 || imports[0] != "fmt" || imports[1] != "str" {
+		t.Errorf("imports: %v", imports)
+	}
+	if len(change.Comments) != 1 || !strings.HasPrefix(change.Comments[0].Below, "func Shout(s string) string {\nreturn str.ToUpper") {
+		t.Errorf("comments: %+v", change.Comments)
+	}
+	if len(change.index) == 0 || change.index[0].Body == "" {
+		t.Errorf("the index carries no bodies: %+v", change.index)
+	}
+}

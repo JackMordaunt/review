@@ -1,7 +1,9 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -15,43 +17,79 @@ type Declared struct {
 	// Text is the line it was declared on, which is what shows a reader that
 	// two constants hold the same number.
 	Text string
+	// Body is the whole declaration where it has one, for the checks that
+	// compare two functions rather than two names.
+	Body string
 }
 
 func (d Declared) String() string {
 	return fmt.Sprintf("%s:%d: %s", d.File, d.Line, strings.TrimSpace(d.Text))
 }
 
-// Resembling returns the declarations whose names share a word with the one
-// given, which is the shortlist a reader is asked to judge. Its own
+// Resembling returns the declarations whose names share a word with the
+// one given, which is the shortlist a reader is asked to judge. Words are
+// matched whole, so that cache does not pull in every Cached, and the list
+// is ranked: the more words shared the higher, a declaration of the same
+// kind above one of another, and the same file above the rest. Its own
 // declaration is left out, since a name always resembles itself.
 func Resembling(index []Declared, symbol Symbol, limit int) []string {
-	words := split(symbol.Name)
-	var out []string
-	seen := map[string]bool{}
-	for _, word := range words {
-		if len(word) < 4 {
-			continue
-		}
-		lower := strings.ToLower(word)
-		for _, declared := range index {
-			if declared.File == symbol.File && declared.Line == symbol.Line {
-				continue
-			}
-			if !strings.Contains(strings.ToLower(declared.Name), lower) {
-				continue
-			}
-			line := declared.String()
-			if seen[line] {
-				continue
-			}
-			seen[line] = true
-			out = append(out, line)
-			if len(out) >= limit {
-				return out
-			}
+	wanted := map[string]bool{}
+	for _, word := range split(symbol.Name) {
+		if len(word) >= 4 {
+			wanted[depluralise(strings.ToLower(word))] = true
 		}
 	}
-	return out
+	if len(wanted) == 0 {
+		return nil
+	}
+	type candidate struct {
+		line  string
+		score int
+		order int
+	}
+	var out []candidate
+	seen := map[string]bool{}
+	for i, declared := range index {
+		if declared.File == symbol.File && declared.Line == symbol.Line {
+			continue
+		}
+		shared := 0
+		for _, word := range split(declared.Name) {
+			if wanted[depluralise(strings.ToLower(word))] {
+				shared++
+			}
+		}
+		if shared == 0 {
+			continue
+		}
+		line := declared.String()
+		if seen[line] {
+			continue
+		}
+		seen[line] = true
+		score := shared * 4
+		if declared.Kind == symbol.Kind {
+			score += 2
+		}
+		if declared.File == symbol.File {
+			score++
+		}
+		out = append(out, candidate{line, score, i})
+	}
+	slices.SortFunc(out, func(a, b candidate) int {
+		if c := cmp.Compare(b.score, a.score); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.order, b.order)
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	lines := make([]string, len(out))
+	for i, r := range out {
+		lines[i] = r.line
+	}
+	return lines
 }
 
 // same reports whether two declarations hold the same literal, which is the

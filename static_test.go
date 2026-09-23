@@ -77,16 +77,31 @@ func TestShortMessagesAreNotMeasured(t *testing.T) {
 	}
 }
 
-// A staged change carries the previous commit's message, so a finding says so
-// rather than letting the reader believe the staged work was measured.
-func TestStagedChangeMeasuresThePreviousMessage(t *testing.T) {
-	change := &Change{Message: uncommittedNote + strings.Repeat("asdf asdf ", 6)}
-	findings := runChecks(change)
-	if len(findings) != 1 {
-		t.Fatalf("got %d findings:\n%v", len(findings), findings)
+// A staged change has no message of its own, so nothing measures one: the
+// previous commit's message described other work, and a finding about it
+// would send the author to fix a commit the change did not make.
+func TestStagedChangeMeasuresNoMessage(t *testing.T) {
+	r := newRepo(t)
+	r.write("seed.txt", "seed\n")
+	r.commit(strings.Repeat("asdf asdf ", 6), "seed.txt")
+	parts := []string{"package x\n\n"}
+	for i := 0; i < 60; i++ {
+		parts = append(parts, fmt.Sprintf("var v%d = %d\n", i, i))
 	}
-	if !strings.Contains(findings[0].Message, "previous commit") {
-		t.Errorf("does not say what it measured: %s", findings[0].Message)
+	r.write("x.go", strings.Join(parts, ""))
+	r.stage("x.go")
+
+	change, err := Gather("", r.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if change.Message != "" {
+		t.Fatalf("a staged change carries a message: %q", change.Message)
+	}
+	for _, f := range runChecks(change) {
+		if strings.HasPrefix(f.Rule, "message-") {
+			t.Errorf("measured a message that does not exist: %v", f)
+		}
 	}
 }
 
@@ -392,8 +407,8 @@ func TestBodyIsCapped(t *testing.T) {
 	}
 }
 
-// A large subject-only staged change is caught through Gather too, where
-// the message measured is the previous commit's.
+// A large subject-only change is caught through Gather too, with the
+// message a commit-msg hook would supply for the staged change.
 func TestBodyAgainstARealCommit(t *testing.T) {
 	r := newRepo(t)
 	r.write("seed.txt", "seed\n")
@@ -410,7 +425,8 @@ func TestBodyAgainstARealCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	findings := runChecks(change)
+	change.Message = "x: add sixty variables"
+	findings := only(runChecks(change), "message-")
 	if len(findings) != 1 || findings[0].Rule != "message-no-body" {
 		t.Errorf("got %v", findings)
 	}
@@ -482,7 +498,7 @@ func TestTemporalAgainstARealCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	findings := runChecks(change)
+	findings := only(runChecks(change), "history-")
 	if len(findings) != 1 || findings[0].Rule != "history-coupled-file" {
 		t.Errorf("got %v", findings)
 		return
@@ -499,7 +515,7 @@ func TestTemporalAgainstARealCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if findings := runChecks(change); len(findings) != 0 {
+	if findings := only(runChecks(change), "history-"); len(findings) != 0 {
 		t.Errorf("got %v", findings)
 	}
 }
@@ -527,13 +543,13 @@ func TestTemporalSparesAGonePartner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if findings := runChecks(change); len(findings) != 0 {
+	if findings := only(runChecks(change), "history-"); len(findings) != 0 {
 		t.Errorf("got %v", findings)
 	}
 }
 
-// Through Gather, the check reads the history git holds, and a staged
-// change is measured on the previous commit's message and says so.
+// Through Gather, the check reads the history git holds, against the
+// message supplied for the staged change.
 func TestCommonWordsAgainstARealHistory(t *testing.T) {
 	r := newRepo(t)
 	for i := 0; i < 110; i++ {
@@ -546,12 +562,10 @@ func TestCommonWordsAgainstARealHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	findings := runChecks(change)
+	change.Message = "fix build"
+	findings := only(runChecks(change), "message-")
 	if len(findings) != 1 || findings[0].Rule != "message-common-words" {
 		t.Fatalf("got %v", findings)
-	}
-	if !strings.Contains(findings[0].Message, "previous commit") {
-		t.Errorf("does not say what it measured: %s", findings[0].Message)
 	}
 }
 
@@ -592,6 +606,60 @@ func TestChecksHoldTheChangeToTheReview(t *testing.T) {
 	for _, want := range []string{"suppression-added", "test-deleted"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("%s missing from %v", want, got)
+		}
+	}
+}
+
+// only keeps the findings whose rule opens with the prefix, so a test of
+// one check against a real repository is not answered by the others.
+func only(findings []Finding, prefix string) []Finding {
+	var out []Finding
+	for _, f := range findings {
+		if strings.HasPrefix(f.Rule, prefix) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// A message naming code that is nowhere in the repository describes work
+// the diff does not contain.
+func TestNamesUnknown(t *testing.T) {
+	r := newRepo(t)
+	r.write("x.go", "package x\n\nfunc readConfig() {}\n")
+	r.commit("first", "x.go")
+	r.write("x.go", "package x\n\nfunc readConfig() {}\n\nfunc parseFlags() {}\n")
+	r.write("docs/notes.md", "notes\n")
+	r.stage("x.go", "docs/notes.md")
+	change, err := Gather("", r.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		message string
+		fires   bool
+	}{
+		{"x: add parseFlags beside readConfig", false},     // both exist
+		{"x: add parseConfig()", true},                     // remembered wrong
+		{"x: add `load_settings` for docs/notes.md", true}, // backticked, unknown
+		{"x: touch docs/notes.md", false},                  // a path in the tree
+		{"x: make the reader faster", false},               // no identifier at all
+		{"x: see https://example.com/parseConfig", false},  // a link is not a name
+	} {
+		change.Message = test.message
+		got := only(runChecks(change), "message-names-unknown")
+		if (len(got) == 1) != test.fires {
+			t.Errorf("%q: got %v", test.message, got)
+		}
+	}
+}
+
+func TestBrandShaped(t *testing.T) {
+	for word, want := range map[string]bool{
+		"gRPC": true, "iOS": true, "macOS": true, "eBay": true, "getID": false, "parseConfig": false, "readURL": false, "id": false,
+	} {
+		if got := brandShaped(word); got != want {
+			t.Errorf("%s: %v, want %v", word, got, want)
 		}
 	}
 }
