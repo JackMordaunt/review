@@ -9,6 +9,7 @@ package main
 import "core:fmt"
 import "core:os"
 
+import "../analyser"
 import "../change"
 import "../check"
 import "../finding"
@@ -76,9 +77,12 @@ main :: proc() {
 	}
 	// The deterministic checks ask nothing of a provider, so they run
 	// before one is built and survive a model that cannot answer.
-	findings := check.run(check.scope_of(&c, t))
-	finding.sort(findings)
-	kept, dismissed := report.filter(t.dir, findings)
+	findings := make([dynamic]finding.Finding)
+	append(&findings, ..check.run(check.scope_of(&c, t)))
+	_, ranged := tree.ends(rev)
+	append(&findings, ..analyser.check(&c, t, ranged))
+	finding.sort(findings[:])
+	kept, dismissed := report.filter(t.dir, findings[:])
 	env := report.Contract {
 		status    = report.status_of(c, 0),
 		findings  = kept,

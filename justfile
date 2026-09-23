@@ -41,7 +41,7 @@ odin-test:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p build
-    for p in frontend git tree change finding report check; do
+    for p in frontend git tree change finding report check analyser; do
         {{odin}} test odin/$p {{odin_flags}} -out:build/${p}_test
     done
 

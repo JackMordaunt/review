@@ -211,6 +211,11 @@ func goPackages(tree string, files []string) []string {
 		if _, err := os.Stat(filepath.Join(tree, dir)); err != nil {
 			continue
 		}
+		// A directory under a go.mod of its own is another module's, and
+		// the go command run at the root cannot name it.
+		if nestedModule(tree, dir) {
+			continue
+		}
 		dirs[dir] = true
 	}
 	var out []string
@@ -219,6 +224,17 @@ func goPackages(tree string, files []string) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// nestedModule is whether a directory sits under a go.mod below the
+// tree's root, which makes it another module's package.
+func nestedModule(tree, dir string) bool {
+	for d := dir; d != "." && d != "" && d != "/"; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(tree, d, "go.mod")); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // position matches the file:line:column: message the Go tools print.

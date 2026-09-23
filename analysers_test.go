@@ -298,3 +298,19 @@ func TestOdinCollectionsReadOlsJSON(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestGoPackagesSkipsNestedModules(t *testing.T) {
+	dir := t.TempDir()
+	for _, path := range []string{"go.mod", "a/a.go", "sidecar/govet/go.mod", "sidecar/govet/main.go", "sidecar/gofront/main.go"} {
+		if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(path)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, path), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := goPackages(dir, []string{"a/a.go", "sidecar/govet/main.go", "sidecar/gofront/main.go", "vendor/x/x.go"})
+	if want := []string{"./a", "./sidecar/gofront"}; !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
