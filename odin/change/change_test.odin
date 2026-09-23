@@ -140,6 +140,16 @@ gather_reads_a_range_through_the_sidecar :: proc(t: ^testing.T) {
 }
 
 @(test)
+code_files_are_the_ones_a_reader_could_exist_for :: proc(t: ^testing.T) {
+	testing.expect(t, is_code_file("a/b.zig"))
+	testing.expect(t, is_code_file("Justfile"))
+	testing.expect(t, !is_code_file("readme.md"))
+	testing.expect(t, !is_code_file("go.sum"))
+	testing.expect(t, !is_code_file("x/.gitignore"))
+	testing.expect(t, !is_code_file("Dockerfile"))
+}
+
+@(test)
 gather_of_nothing_staged_is_empty :: proc(t: ^testing.T) {
 	root, made := new_repo(t)
 	testing.expect(t, made, "the fixture repository")

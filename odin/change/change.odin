@@ -7,6 +7,8 @@ what new work is judged against.
 */
 package change
 
+import "core:fmt"
+import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 
@@ -53,6 +55,12 @@ Declared :: struct {
 	body: string,
 }
 
+// Gap is a file the deterministic side could not read, and why.
+Gap :: struct {
+	file:   string `json:"file"`,
+	reason: string `json:"reason"`,
+}
+
 // Diff_Line is one added line and the number it lands on.
 Diff_Line :: struct {
 	line: int,
@@ -77,8 +85,8 @@ Change :: struct {
 	tests:     [dynamic]Function,
 	comments:  [dynamic]Located,
 	imports:   map[string][]string,
-	// uncovered are the code files no sidecar reads.
-	uncovered: [dynamic]string,
+	// uncovered are the code files no sidecar read, with a reason each.
+	uncovered: [dynamic]Gap,
 }
 
 max_diff :: 60000
@@ -202,6 +210,16 @@ side :: proc(path, prefix: string) -> string {
 read :: proc(c: ^Change, t: tree.Tree, allocator := context.allocator) -> bool {
 	context.allocator = allocator
 	ok := true
+	for name in c.files {
+		// A file no reader could plausibly exist for — prose, data,
+		// configuration — is not a promise the review broke; a code file
+		// with no reader is, because a job that would have read it read
+		// nothing.
+		if _, covered := frontend.sidecar_for(name);
+		   !covered && is_code_file(name) && tree.exists(t, name) {
+			append(&c.uncovered, Gap{name, "no reader"})
+		}
+	}
 	for sidecar in frontend.Sidecar {
 		names := make([dynamic]string, context.temp_allocator)
 		for name in c.files {
@@ -215,14 +233,21 @@ read :: proc(c: ^Change, t: tree.Tree, allocator := context.allocator) -> bool {
 		}
 		answers, err := scan(sidecar, t, names[:], context.temp_allocator)
 		if err != .None {
-			append(&c.uncovered, ..names[:])
+			why := fmt.aprintf("%s: %s", frontend.binary(sidecar), scan_error(err))
+			for name in names {
+				append(&c.uncovered, Gap{name, why})
+			}
 			ok = false
 			continue
 		}
 		for name in names {
 			file, answered := answers[name]
-			if !answered || file.error != "" {
-				append(&c.uncovered, name)
+			if !answered {
+				append(&c.uncovered, Gap{name, "no answer from the sidecar"})
+				continue
+			}
+			if file.error != "" {
+				append(&c.uncovered, Gap{name, strings.clone(file.error)})
 				continue
 			}
 			read_file(c, t, name, file)
@@ -371,6 +396,44 @@ scan :: proc(
 		}
 	}
 	return answers, .None
+}
+
+// scan_error says what a sidecar failure was.
+scan_error :: proc(err: frontend.Scan_Error) -> string {
+	switch err {
+	case .None:
+		return ""
+	case .Not_Installed:
+		return "not on the path"
+	case .Failed:
+		return "gave no answer"
+	case .Unreadable:
+		return "gave an answer that is not its JSON"
+	}
+	return ""
+}
+
+// is_code_file reports a file a reader could plausibly exist for: not
+// prose, data, configuration or the files a repository keeps for git.
+is_code_file :: proc(path: string) -> bool {
+	base := filepath.base(path)
+	switch base {
+	case ".gitignore",
+	     ".gitattributes",
+	     ".gitmodules",
+	     ".editorconfig",
+	     "Makefile",
+	     "Dockerfile",
+	     "LICENSE",
+	     "CODEOWNERS":
+		return false
+	}
+	for ext in ([]string{".md", ".mdx", ".txt", ".rst", ".adoc", ".json", ".yaml", ".yml", ".toml", ".lock", ".sum", ".mod", ".html", ".htm", ".css", ".svg", ".xml"}) {
+		if strings.has_suffix(base, ext) {
+			return false
+		}
+	}
+	return true
 }
 
 // is_test_file reports a file the test runner reads, in Go's habit.

@@ -1,20 +1,37 @@
 // review, the Odin reading: what a change adds, read through the language
-// sidecars, and the repository's declarations it is judged against. The
-// change is the staged one, or the revision range given.
+// sidecars, judged, and reported. The change is the staged one, or the
+// revision range given.
 //
-//	review            # the staged change
-//	review HEAD^..HEAD
+//	review [--json] [--verbose] [--show] [rev]
 package main
 
 import "core:fmt"
 import "core:os"
 
 import "../change"
+import "../finding"
 import "../git"
+import "../report"
 import "../tree"
 
 main :: proc() {
-	rev := os.args[1] if len(os.args) > 1 else ""
+	as_json, verbose, show: bool
+	rev := ""
+	for arg in os.args[1:] {
+		switch arg {
+		case "--json":
+			as_json = true
+		case "--verbose":
+			verbose = true
+		case "--show":
+			show = true
+		case "-h", "--help":
+			fmt.println("usage: review [--json] [--verbose] [--show] [rev]")
+			return
+		case:
+			rev = arg
+		}
+	}
 	cwd, cwd_err := os.get_working_directory(context.temp_allocator)
 	if cwd_err != nil {
 		fmt.eprintln("review: no working directory")
@@ -31,7 +48,12 @@ main :: proc() {
 		os.exit(1)
 	}
 	if len(c.files) == 0 {
-		fmt.println("nothing to review")
+		if as_json {
+			out, _ := report.encode(report.Contract{status = "empty"})
+			fmt.println(out)
+		} else {
+			fmt.println("nothing to review")
+		}
 		return
 	}
 	t, at_ok := tree.at(root, rev)
@@ -41,8 +63,43 @@ main :: proc() {
 	}
 	defer tree.close(t)
 
-	read_ok := change.read(&c, t)
-	fmt.printfln("=== change %s: %d files, %d added lines ===", rev, len(c.files), added(c))
+	change.read(&c, t)
+	if show {
+		list(c, t)
+	}
+	findings: [dynamic]finding.Finding
+	finding.sort(findings[:])
+	kept, dismissed := report.filter(t.dir, findings[:])
+	env := report.Contract {
+		status    = report.status_of(c, 0),
+		findings  = kept,
+		dismissed = dismissed,
+		uncovered = c.uncovered[:],
+		truncated = c.truncated,
+	}
+	if as_json {
+		out, ok := report.encode(env)
+		if !ok {
+			fmt.eprintln("review: the report could not be encoded")
+			os.exit(1)
+		}
+		fmt.println(out)
+		return
+	}
+	fmt.print(report.render(env, verbose))
+	for gap in c.uncovered {
+		fmt.eprintfln("unread: %s: %s", gap.file, gap.reason)
+	}
+}
+
+// list prints what the sidecars read, for a look at the evidence before
+// any judgement of it.
+list :: proc(c: change.Change, t: tree.Tree) {
+	added := 0
+	for _, lines in c.added {
+		added += len(lines)
+	}
+	fmt.printfln("=== change: %d files, %d added lines ===", len(c.files), added)
 	for s in c.symbols {
 		mark := " exported" if s.exported else ""
 		fmt.printfln("symbol  %s:%d %s %s%s", s.file, s.line, s.kind, s.name, mark)
@@ -53,21 +110,6 @@ main :: proc() {
 	for l in c.comments {
 		fmt.printfln("comment %s:%d %s", l.file, l.line, l.text)
 	}
-	for name in c.uncovered {
-		fmt.printfln("unread  %s", name)
-	}
-	declared, indexed := change.index(t)
+	declared, _ := change.index(t)
 	fmt.printfln("=== index: %d declarations ===", len(declared))
-	if !read_ok || !indexed {
-		fmt.eprintln("review: a sidecar did not answer")
-		os.exit(1)
-	}
-}
-
-added :: proc(c: change.Change) -> int {
-	n := 0
-	for _, lines in c.added {
-		n += len(lines)
-	}
-	return n
 }
