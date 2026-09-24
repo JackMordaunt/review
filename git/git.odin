@@ -7,7 +7,7 @@ the caller that wants them.
 package git
 
 import "core:strings"
-import "jfm:sh"
+import "jm:sh"
 
 // run asks git, in root, and returns what it printed with trailing
 // whitespace removed.

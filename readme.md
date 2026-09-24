@@ -29,7 +29,7 @@ review agent                    what an agent's instructions should say about th
 
 ## Building
 
-The tool is written in Odin, on the `jfm` collection (`~/Source/Personal/odin`), and
+The tool is written in Odin, on the `jm` collection (`~/Source/Personal/jm`), and
 reads each language through a sidecar built on that language's own parser. `just build`
 compiles the four binaries into `build/`; `just install` puts them beside each other on
 the path: `review`, `review-go` (Go's parser, from `sidecar/gofront`), `review-vet` (go

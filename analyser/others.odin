@@ -5,7 +5,7 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:text/regex"
-import "jfm:sh"
+import "jm:sh"
 
 import "../finding"
 

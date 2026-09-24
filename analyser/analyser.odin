@@ -16,7 +16,7 @@ import "core:strconv"
 import "core:strings"
 import "core:text/regex"
 import "core:time"
-import "jfm:sh"
+import "jm:sh"
 
 import "../change"
 import "../finding"

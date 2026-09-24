@@ -5,7 +5,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
-import "jfm:sh"
+import "jm:sh"
 
 import "../frontend"
 import "../tree"

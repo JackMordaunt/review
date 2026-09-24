@@ -11,7 +11,7 @@ import "core:debug/trace"
 import "core:fmt"
 import "core:os"
 import "core:strings"
-import "jfm:debug"
+import "jm:debug"
 
 import "../analyser"
 import "../bench"

@@ -4,7 +4,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
-import "jfm:sh"
+import "jm:sh"
 
 @(test)
 install_writes_the_hook_once :: proc(t: ^testing.T) {

@@ -4,7 +4,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
-import "jfm:sh"
+import "jm:sh"
 
 @(test)
 bench_counts_what_fires :: proc(t: ^testing.T) {

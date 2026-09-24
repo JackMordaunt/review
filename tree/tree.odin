@@ -11,8 +11,8 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
-import "jfm:sh"
-import "jfm:tar"
+import "jm:sh"
+import "jm:tar"
 
 import "../git"
 

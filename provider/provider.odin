@@ -12,7 +12,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:time"
-import "jfm:sh"
+import "jm:sh"
 
 // Answer is what a provider returned, with whatever it could say about
 // the cost. A provider that reports no usage leaves the counts at zero

@@ -10,7 +10,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:time"
-import "jfm:http"
+import "jm:http"
 
 api_url     :: "https://api.anthropic.com/v1/messages"
 api_version :: "2023-06-01"

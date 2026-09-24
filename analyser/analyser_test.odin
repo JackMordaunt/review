@@ -5,7 +5,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
-import "jfm:sh"
+import "jm:sh"
 
 import "../change"
 import "../finding"
@@ -202,7 +202,7 @@ collections_resolve_against_the_repository :: proc(t: ^testing.T) {
 		os.write_entire_file(
 			join(scratch, "ols.json"),
 			transmute([]byte)string(
-				`{"collections":[{"name":"jfm","path":"../odin"},{"name":"abs","path":"/opt/abs"},{"name":""}]}`,
+				`{"collections":[{"name":"jm","path":"../jm"},{"name":"abs","path":"/opt/abs"},{"name":""}]}`,
 			),
 		) ==
 		nil,
@@ -211,7 +211,7 @@ collections_resolve_against_the_repository :: proc(t: ^testing.T) {
 	testing.expect_value(
 		t,
 		fmt.tprint(got),
-		`["-collection:jfm=/odin", "-collection:abs=/opt/abs"]`,
+		`["-collection:jm=/jm", "-collection:abs=/opt/abs"]`,
 	)
 	testing.expect_value(t, len(collections("/nowhere", "/repo", context.temp_allocator)), 0)
 }

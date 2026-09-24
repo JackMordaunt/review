@@ -14,7 +14,7 @@ import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:text/regex"
-import "jfm:sh"
+import "jm:sh"
 
 // Pattern is one top-level declaration shape a TypeScript grammar binds.
 // Export status is part of the pattern so a symbol's audience is known;

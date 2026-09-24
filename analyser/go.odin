@@ -4,7 +4,7 @@ import "core:encoding/json"
 import "core:os"
 import "core:slice"
 import "core:strings"
-import "jfm:sh"
+import "jm:sh"
 
 import "../finding"
 

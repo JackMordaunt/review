@@ -9,7 +9,7 @@ package frontend
 
 import "core:encoding/json"
 import "core:strings"
-import "jfm:sh"
+import "jm:sh"
 
 // Decl is one declaration as a sidecar reports it. Kinds are func, type,
 // field, const, var and value. A test is what the language's test runner
