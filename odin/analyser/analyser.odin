@@ -15,6 +15,7 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "core:text/regex"
+import "core:time"
 import "jfm:sh"
 
 import "../change"
@@ -25,6 +26,10 @@ import "../tree"
 // large module can take minutes; past this the analyser says nothing
 // rather than holding the review.
 timeout_seconds :: 300
+
+// timeout_seconds_override is the bound a test lowers; zero means the
+// constant above.
+timeout_seconds_override: int
 
 // Diagnostic is one thing an analyser said, located in the tree. A fault
 // is a compile error — the tree does not build — rather than an
@@ -187,17 +192,15 @@ execute_both :: proc(
 	err: string,
 ) {
 	argv := make([dynamic]string, context.temp_allocator)
-	if _, found := sh.which("timeout", context.temp_allocator); found {
-		append(&argv, "timeout", fmt.tprintf("%d", timeout_seconds))
-	}
 	append(&argv, name)
 	append(&argv, ..args)
-	r := sh.exec(argv[:], {dir = dir}, allocator)
+	bound := timeout_seconds if timeout_seconds_override == 0 else timeout_seconds_override
+	r := sh.exec(argv[:], {dir = dir, timeout = time.Duration(bound) * time.Second}, allocator)
 	if r.err != nil {
 		return "", "", fmt.aprintf("%s: %s", name, os.error_string(r.err), allocator = allocator)
 	}
-	if r.code == 124 && len(argv) > 2 && argv[0] == "timeout" {
-		return r.stdout, r.stderr, fmt.aprintf("a run past %d seconds is not waited for", timeout_seconds, allocator = allocator)
+	if r.timed_out {
+		return r.stdout, r.stderr, fmt.aprintf("a run past %d seconds is not waited for", bound, allocator = allocator)
 	}
 	if !r.ok {
 		detail := strings.trim_space(r.stderr)

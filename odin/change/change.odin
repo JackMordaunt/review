@@ -148,15 +148,15 @@ gather :: proc(rev, root: string, allocator := context.allocator) -> (c: Change,
 		name_args = {"diff", rev, "--name-only"}
 		stat_args = {"diff", rev, "--stat"}
 	}
-	c.diff = git.run(root, diff_args) or_return
+	c.diff = git.raw(root, diff_args) or_return
 	if len(c.diff) > max_diff {
 		c.diff = strings.concatenate({c.diff[:max_diff], "\n… diff truncated\n"})
 		c.truncated = true
 	}
 	c.files = git.lines(root, name_args) or_return
-	c.stat = git.run(root, stat_args) or_return
+	c.stat = git.raw(root, stat_args) or_return
 	if rev != "" {
-		c.message, _ = git.run(root, {"log", "-1", "--format=%B", strings.trim_suffix(rev, "^")})
+		c.message, _ = git.raw(root, {"log", "-1", "--format=%B", strings.trim_suffix(rev, "^")})
 	}
 	// The whitespace-only lines are what the diff loses when git is asked
 	// to ignore whitespace; the difference is the formatting mixed in.
@@ -497,7 +497,46 @@ read :: proc(c: ^Change, t: tree.Tree, allocator := context.allocator) -> bool {
 		}
 	}
 	annotate(c, t)
+	order(c)
 	return ok
+}
+
+// order puts what the sidecars read into the diff's own order — file as
+// git lists it, then line — so that a subject renders the same on every
+// run whichever sidecar answered first, and the answer cache is hit.
+order :: proc(c: ^Change) {
+	position := make(map[string]int, context.temp_allocator)
+	for f, i in c.files {
+		position[f] = i
+	}
+	positions = &position
+	defer positions = nil
+	slice.stable_sort_by_cmp(c.symbols[:], proc(a, b: Symbol) -> slice.Ordering {
+		return before(a.file, a.line, b.file, b.line)
+	})
+	slice.stable_sort_by_cmp(c.tests[:], proc(a, b: Function) -> slice.Ordering {
+		return before(a.file, a.line, b.file, b.line)
+	})
+	slice.stable_sort_by_cmp(c.comments[:], proc(a, b: Located) -> slice.Ordering {
+		return before(a.file, a.line, b.file, b.line)
+	})
+}
+
+// positions is the file order under sort, reachable from the comparators,
+// which cannot capture it.
+@(private)
+positions: ^map[string]int
+
+@(private)
+before :: proc(file_a: string, line_a: int, file_b: string, line_b: int) -> slice.Ordering {
+	pa, pb := positions[file_a], positions[file_b]
+	if pa != pb {
+		return .Less if pa < pb else .Greater
+	}
+	if line_a != line_b {
+		return .Less if line_a < line_b else .Greater
+	}
+	return .Equal
 }
 
 // annotate adds to what the sidecars read the parts every language

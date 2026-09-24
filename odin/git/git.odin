@@ -29,6 +29,27 @@ run :: proc(
 	return strings.trim_right_space(r.stdout), true
 }
 
+// raw asks git and returns what it printed as it printed it, trailing
+// newlines kept: a diff, a stat or a message rendered into a prompt has
+// to be byte for byte what the Go tool renders.
+raw :: proc(
+	root: string,
+	args: []string,
+	allocator := context.allocator,
+) -> (
+	out: string,
+	ok: bool,
+) {
+	argv := make([]string, len(args) + 1, context.temp_allocator)
+	argv[0] = "git"
+	copy(argv[1:], args)
+	r := sh.exec(argv, {dir = root}, allocator)
+	if !r.ok {
+		return r.stderr, false
+	}
+	return r.stdout, true
+}
+
 // lines is run, split into lines, empty ones dropped.
 lines :: proc(
 	root: string,

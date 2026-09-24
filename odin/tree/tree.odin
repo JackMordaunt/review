@@ -7,12 +7,12 @@ Every reader after that reads files, which is what a sidecar can be handed.
 */
 package tree
 
-import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "jfm:sh"
+import "jfm:tar"
 
 import "../git"
 
@@ -46,21 +46,20 @@ close :: proc(t: Tree) {
 }
 
 // materialise writes the revision's files to a scratch directory, out of
-// git's own archive of it: one ask, however many files. The archive is
-// unpacked by the tar on the path, which every platform now ships.
+// git's own archive of it: one ask, however many files, unpacked here
+// rather than by a tar program the platform may not have.
 materialise :: proc(root, rev: string, allocator := context.allocator) -> (dir: string, ok: bool) {
 	temp := os.temp_directory(context.temp_allocator) or_else ""
 	scratch, err := os.make_directory_temp(temp, "review-tree-*", allocator)
 	if err != nil {
 		return "", false
 	}
-	cmd := fmt.tprintf(
-		"git archive --format=tar %s | tar -x -C %s",
-		sh.quote(rev, context.temp_allocator),
-		sh.quote(scratch, context.temp_allocator),
-	)
-	r := sh.capture(cmd, {dir = root}, context.temp_allocator)
+	r := sh.exec({"git", "archive", "--format=tar", rev}, {dir = root}, context.temp_allocator)
 	if !r.ok {
+		os.remove_all(scratch)
+		return "", false
+	}
+	if _, unpacked := tar.extract(transmute([]byte)r.stdout, scratch); unpacked != .None {
 		os.remove_all(scratch)
 		return "", false
 	}

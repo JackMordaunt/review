@@ -11,6 +11,7 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:time"
 import "jfm:sh"
 
 // Answer is what a provider returned, with whatever it could say about
@@ -355,18 +356,15 @@ shell :: proc(
 	out: string,
 	err: string,
 ) {
-	full := make([dynamic]string, context.temp_allocator)
-	timed := false
-	if _, found := sh.which("timeout", context.temp_allocator); found {
-		append(&full, "timeout", fmt.tprintf("%d", ask_timeout_seconds()))
-		timed = true
-	}
-	append(&full, ..argv)
-	r := sh.exec(full[:], {stdin = prompt}, allocator)
+	r := sh.exec(
+		argv,
+		{stdin = prompt, timeout = time.Duration(ask_timeout_seconds()) * time.Second},
+		allocator,
+	)
 	if r.err != nil {
 		return "", fmt.aprintf("%s: %s", argv[0], os.error_string(r.err), allocator = allocator)
 	}
-	if timed && r.code == 124 {
+	if r.timed_out {
 		return "", fmt.aprintf(
 			"%s: no answer within %d seconds",
 			argv[0],

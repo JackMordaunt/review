@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"os"
@@ -163,4 +164,33 @@ func (c *Change) read(root, rev string, frontends []Frontend) {
 		missing(covers, f, FeatTests, "tests")
 		missing(covers, f, FeatComments, "claims")
 	}
+	c.order()
+}
+
+// order puts what the frontends read into the diff's own order — file as
+// git lists it, then line — so that a subject renders the same on every
+// run whichever frontend answered first, and the answer cache is hit.
+func (c *Change) order() {
+	position := map[string]int{}
+	for i, f := range c.Files {
+		position[f] = i
+	}
+	slices.SortStableFunc(c.Symbols, func(a, b Symbol) int {
+		if d := cmp.Compare(position[a.File], position[b.File]); d != 0 {
+			return d
+		}
+		return cmp.Compare(a.Line, b.Line)
+	})
+	slices.SortStableFunc(c.Tests, func(a, b Function) int {
+		if d := cmp.Compare(position[a.File], position[b.File]); d != 0 {
+			return d
+		}
+		return cmp.Compare(a.Line, b.Line)
+	})
+	slices.SortStableFunc(c.Comments, func(a, b Located) int {
+		if d := cmp.Compare(position[a.File], position[b.File]); d != 0 {
+			return d
+		}
+		return cmp.Compare(a.Line, b.Line)
+	})
 }

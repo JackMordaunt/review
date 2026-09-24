@@ -3,6 +3,7 @@ package analyser
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "core:testing"
 import "jfm:sh"
 
@@ -176,6 +177,18 @@ parse_tsc_ruff_mypy_cargo_semgrep :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, staticcheck_severity("S1002"), finding.Severity.Consider)
 	testing.expect_value(t, staticcheck_severity("U1000"), finding.Severity.Consider)
+}
+
+@(test)
+a_run_past_the_timeout_is_not_waited_for :: proc(t: ^testing.T) {
+	saved := timeout_seconds_override
+	timeout_seconds_override = 1
+	defer timeout_seconds_override = saved
+	_, _, err := execute_both(".", "sleep", {"3"}, context.temp_allocator)
+	testing.expect(t, strings.contains(err, "not waited for"), err)
+	out, _, ok_err := execute_both(".", "echo", {"quick"}, context.temp_allocator)
+	testing.expect_value(t, ok_err, "")
+	testing.expect_value(t, out, "quick\n")
 }
 
 @(test)

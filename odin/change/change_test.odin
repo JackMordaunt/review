@@ -3,6 +3,7 @@ package change
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "core:testing"
 import "jfm:sh"
 
@@ -106,7 +107,7 @@ gather_reads_a_range_through_the_sidecar :: proc(t: ^testing.T) {
 	c, ok := gather("HEAD^..HEAD", root, context.temp_allocator)
 	testing.expect(t, ok, "gather")
 	testing.expect_value(t, len(c.files), 2)
-	testing.expect_value(t, c.message, "a: add added")
+	testing.expect_value(t, strings.trim_space(c.message), "a: add added")
 	testing.expect_value(t, c.truncated, false)
 
 	tr, at_ok := tree.at(root, "HEAD^..HEAD", context.temp_allocator)
