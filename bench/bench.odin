@@ -21,6 +21,12 @@ Options :: struct {
 	n:      int,
 	author: string,
 	rule:   string,
+	// db is where the memo lives: empty for the default beside the answer
+	// cache, "off" to disable it. A test that must measure every time sets
+	// its own path rather than touching the user's.
+	db:     string,
+	// fresh measures every commit again instead of replaying the memo.
+	fresh:  bool,
 }
 
 // Fire is one commit a rule fired on.
@@ -51,45 +57,41 @@ run :: proc(
 	if !listed || len(commits) == 0 {
 		return "", "no commits to measure"
 	}
+	store := store_open(opts.db)
+	defer store_close(&store)
+	store_begin(store)
+	defer store_commit(store)
 	fires := make(map[string][dynamic]Fire, context.temp_allocator)
 	measured := 0
 	for commit, i in commits {
 		if progress != nil {
 			progress(i + 1, len(commits))
 		}
-		rev := fmt.tprintf("%s^..%s", commit, commit)
-		c, gathered := change.gather(rev, root, context.temp_allocator)
-		if !gathered {
+		subject: string
+		ok: bool
+		records: []Record
+		hit := false
+		if !opts.fresh {
+			subject, ok, hit = store_get(store, commit, context.temp_allocator)
+			if hit && ok {
+				records = store_fires(store, commit, context.temp_allocator)
+			}
+		}
+		if !hit {
+			subject, ok, records = measure(root, commit, context.temp_allocator)
+			store_put(store, commit, subject, ok, records)
+		}
+		if !ok {
 			continue // A root commit has no parent to diff against.
 		}
-		t, at_ok := tree.at(root, rev, context.temp_allocator)
-		if !at_ok {
-			continue
-		}
-		change.read(&c, t, context.temp_allocator)
-		c.index, _ = change.index(t, context.temp_allocator)
-		findings := check.run(
-			check.scope_of(&c, t, context.temp_allocator),
-			context.temp_allocator,
-		)
-		tree.close(t) // One tree per commit; a bench must not keep them all.
 		measured += 1
-		seen := make(map[string]bool, context.temp_allocator)
-		subject := strings.trim_space(c.message)
-		if nl := strings.index_byte(subject, '\n'); nl >= 0 {
-			subject = subject[:nl]
-		}
-		for f in findings {
-			if seen[f.rule] {
-				continue
-			}
-			seen[f.rule] = true
-			list := fires[f.rule]
+		for r in records {
+			list := fires[r.rule]
 			if list.allocator.procedure == nil {
 				list = make([dynamic]Fire, context.temp_allocator)
 			}
-			append(&list, Fire{commit[:min(8, len(commit))], subject, f.message})
-			fires[strings.clone(f.rule, context.temp_allocator)] = list
+			append(&list, Fire{commit[:min(8, len(commit))], subject, r.message})
+			fires[strings.clone(r.rule, context.temp_allocator)] = list
 		}
 	}
 	b := strings.builder_make(allocator)
@@ -157,4 +159,47 @@ fires_of :: proc(rule: string) -> [dynamic]Fire {
 		return {}
 	}
 	return counted[rule]
+}
+
+// measure reads one commit the way a review reads a change, and reports
+// which rules fired. ok is false for a commit that cannot be measured at
+// all — a root commit has no parent to diff against — which is records so
+// that it is not retried on every run.
+@(private)
+measure :: proc(
+	root, commit: string,
+	allocator := context.allocator,
+) -> (
+	subject: string,
+	ok: bool,
+	out: []Record,
+) {
+	context.allocator = allocator
+	rev := fmt.tprintf("%s^..%s", commit, commit)
+	c, gathered := change.gather(rev, root, allocator)
+	if !gathered {
+		return "", false, nil
+	}
+	t, at_ok := tree.at(root, rev, allocator)
+	if !at_ok {
+		return "", false, nil
+	}
+	change.read(&c, t, allocator)
+	c.index, _ = change.index(t, allocator)
+	findings := check.run(check.scope_of(&c, t, allocator), allocator)
+	tree.close(t) // One tree per commit; a bench must not keep them all.
+	subject = strings.trim_space(c.message)
+	if nl := strings.index_byte(subject, '\n'); nl >= 0 {
+		subject = subject[:nl]
+	}
+	list := make([dynamic]Record, allocator)
+	seen := make(map[string]bool, allocator)
+	for f in findings {
+		if seen[f.rule] {
+			continue
+		}
+		seen[f.rule] = true
+		append(&list, Record{f.rule, f.message})
+	}
+	return subject, true, list[:]
 }

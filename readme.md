@@ -22,7 +22,7 @@ review --exit-code              exit 1 when a must-fix finding stands, for a hoo
 review --baseline last.json     which findings resolved, persist, or are new since that report
 review rules [job | rule]       what a finding was judged against
 review rules -dismissed         how often each rule is dismissed in this tree, and why
-review bench [-n 200] [-author x] [-rule id]   fire rate of every static check over recent commits
+review bench [-n 200] [-author x] [-rule id] [--fresh]   fire rate of every static check over recent commits
 review hook install             the commit-msg hook that makes the review a gate
 review agent                    what an agent's instructions should say about this tool
 ```
@@ -258,6 +258,16 @@ the commits to one author's, which is how the checks are held against the popula
 they exist for — agent-authored commits, not the human history they were first
 calibrated on. A rule firing on a tenth of ordinary commits is not measuring what it
 claims to.
+
+A measurement is deterministic — the same tree, read by the same checks, fires
+the same rules — so the bench remembers it. What a commit fired is recorded in
+a SQLite memo beside the answer cache, keyed by the commit and a fingerprint of
+the ruleset, and a later bench measures only what it has not seen: compare
+`review bench -n 200 --fresh` against `review bench -n 200` to see the
+difference on your own history. Renaming, adding or removing a rule changes the
+fingerprint and invalidates the memo on its own; bump `version` in
+`bench/store.odin` when a rule's logic changes, because nothing outside the rule
+can see that.
 
 Measured on the first run of the bench, over 150 commits of the icns corpus: no message
 check fired at all; `code-without-tests` fired on 9%, every one a command, a COM shell

@@ -34,7 +34,7 @@ usage: review [flags] [rev]      the staged change, or a revision range
        review rules -dismissed   the dismissals in the tree, per rule
        review hook [install]     the commit-msg hook, printed or installed
        review agent              what an agent's instructions should say
-       review bench [-n N] [-author A] [-rule R] [root]
+       review bench [-n N] [-author A] [-rule R] [--fresh] [root]
                                  the checks' fire rate over recent commits
 
   --json           Report findings as JSON, for an agent rather than a person.
@@ -482,6 +482,8 @@ run_bench :: proc(args: []string) -> int {
 			}
 		case "-author", "--author":
 			opts.author = take(args, &i)
+		case "-fresh", "--fresh":
+			opts.fresh = true
 		case "-rule", "--rule":
 			opts.rule = take(args, &i)
 		case:
