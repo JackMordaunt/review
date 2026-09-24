@@ -12,6 +12,7 @@ package cache
 import "core:crypto/sha2"
 import "core:encoding/hex"
 import "core:encoding/json"
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -28,26 +29,32 @@ version :: "review-answers-v1"
 // bound is the entry count past which the oldest answers are dropped.
 bound :: 4000
 
-// Entry is one recorded answer and what it cost when it was asked.
+// Entry is one recorded answer and what it cost when it was asked. The
+// time is written as the Go tool writes it, RFC 3339 with the local
+// offset, so that either tool reads the other's file.
 Entry :: struct {
 	text:       string `json:"text"`,
 	tokens_in:  int `json:"in"`,
 	tokens_out: int `json:"out"`,
 	cached:     int `json:"cached"`,
 	cost:       f64 `json:"cost"`,
-	at:         i64 `json:"at"`,
+	at:         string `json:"at"`,
 }
 
 // Cache is one file of recorded answers, keyed by the exact question.
 // fresh skips the reads but keeps the writes, so --fresh re-asks
-// everything and leaves the answers behind it.
+// everything and leaves the answers behind it. A file that was there and
+// could not be read is kept out of harm's way: nothing is written over
+// it, since a save would replace every answer it holds with this run's
+// few.
 Cache :: struct {
-	path:    string,
-	fresh:   bool,
-	entries: map[string]Entry,
-	dirty:   bool,
-	hits:    int,
-	lock:    sync.Mutex,
+	path:      string,
+	fresh:     bool,
+	entries:   map[string]Entry,
+	dirty:     bool,
+	hits:      int,
+	protected: bool,
+	lock:      sync.Mutex,
 }
 
 // open reads the answer file from the user's cache directory, or the path
@@ -76,6 +83,8 @@ open :: proc(fresh: bool, path := "", allocator := context.allocator) -> (c: ^Ca
 	loaded: map[string]Entry
 	if json.unmarshal(data, &loaded, allocator = allocator) == nil {
 		c.entries = loaded
+	} else if len(data) > 0 {
+		c.protected = true
 	}
 	return c, true
 }
@@ -132,9 +141,27 @@ put :: proc(c: ^Cache, provider_name, system, user: string, answer: provider.Ans
 		tokens_out = answer.tokens_out,
 		cached     = answer.cached,
 		cost       = answer.cost,
-		at         = time.time_to_unix(time.now()),
+		at         = stamp(),
 	}
 	c.dirty = true
+}
+
+// stamp is the present, as RFC 3339 in UTC, which sorts as it ages and
+// which the Go tool's reader accepts.
+stamp :: proc(allocator := context.allocator) -> string {
+	now := time.now()
+	y, mo, d := time.date(now)
+	h, mi, sec := time.clock_from_time(now)
+	return fmt.aprintf(
+		"%04d-%02d-%02dT%02d:%02d:%02dZ",
+		y,
+		int(mo),
+		d,
+		h,
+		mi,
+		sec,
+		allocator = allocator,
+	)
 }
 
 // save writes the file back when this run recorded anything, dropping the
@@ -146,13 +173,13 @@ save :: proc(c: ^Cache) {
 	}
 	sync.mutex_lock(&c.lock)
 	defer sync.mutex_unlock(&c.lock)
-	if !c.dirty {
+	if !c.dirty || c.protected {
 		return
 	}
 	if len(c.entries) > bound {
 		Aged :: struct {
 			key: string,
-			at:  i64,
+			at:  string,
 		}
 		ages := make([dynamic]Aged, context.temp_allocator)
 		for k, e in c.entries {

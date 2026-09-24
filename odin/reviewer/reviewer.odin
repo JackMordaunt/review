@@ -166,6 +166,17 @@ run :: proc(
 			thread.destroy(th)
 		}
 	}
+	// The skipped jobs are named in the jobs' own order, whichever
+	// thread said so first.
+	ordered := make([dynamic]string, allocator)
+	for j in jobs {
+		for name in result.skipped {
+			if name == j.name {
+				append(&ordered, name)
+			}
+		}
+	}
+	result.skipped = ordered
 	if r.verify {
 		verify(r, tasks, &result, one_at_a_time, allocator)
 	}
@@ -284,6 +295,15 @@ answered :: proc(
 	provider.Answer,
 	string,
 ) {
+	if os.get_env("REVIEW_DEBUG_CACHE", context.temp_allocator) != "" {
+		fmt.eprintfln(
+			"cache key %s system=%d user=%d provider=%s",
+			cache.key(r.name, system, user, context.temp_allocator)[:12],
+			len(system),
+			len(user),
+			r.name,
+		)
+	}
 	if hit, replayed := cache.get(r.cache, r.name, system, user); replayed {
 		if r.verbose {
 			fmt.printfln("  %-12s replayed", r.name)

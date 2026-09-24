@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -192,6 +193,13 @@ func (r Reviewer) Run(ctx context.Context, change *Change, jobs []Job) RunResult
 		}
 		wg.Wait()
 	}
+	// The skipped jobs are named in the jobs' own order, whichever
+	// goroutine said so first, so the report reads the same on every run.
+	order := map[string]int{}
+	for i, job := range jobs {
+		order[job.Name] = i
+	}
+	slices.SortFunc(result.Skipped, func(a, b string) int { return order[a] - order[b] })
 	if r.Verify {
 		r.verify(ctx, cuts, jobs, &result)
 	}
