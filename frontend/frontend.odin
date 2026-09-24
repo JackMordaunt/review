@@ -59,6 +59,7 @@ Sidecar :: enum {
 	Script,
 	Python,
 	Rust,
+	Bash,
 }
 
 // Scan_Error says why a scan returned nothing: the sidecar is not on the
@@ -77,16 +78,17 @@ binary :: proc(sidecar: Sidecar) -> string {
 		return "review-go"
 	case .Odin:
 		return "odin-review-extract"
-	case .Script, .Python, .Rust:
+	case .Script, .Python, .Rust, .Bash:
 		return "ast-grep"
 	}
 	return ""
 }
 
-// sidecar_for is the sidecar that reads a path, by its extension. The
-// ast-grep languages are covered only while ast-grep is on the path; their
-// files fall to the comment reader otherwise.
-sidecar_for :: proc(path: string) -> (sidecar: Sidecar, covered: bool) {
+// sidecar_for is the sidecar that reads a path, by its extension, or by
+// the shell dialect the caller settled for a script whose name carries
+// none. The ast-grep languages are covered only while ast-grep is on the
+// path; their files fall to the comment reader otherwise.
+sidecar_for :: proc(path: string, shell := "") -> (sidecar: Sidecar, covered: bool) {
 	switch {
 	case strings.has_suffix(path, ".go"):
 		return .Go, true
@@ -98,6 +100,8 @@ sidecar_for :: proc(path: string) -> (sidecar: Sidecar, covered: bool) {
 		return .Python, installed(.Python)
 	case strings.has_suffix(path, ".rs"):
 		return .Rust, installed(.Rust)
+	case shell != "":
+		return .Bash, installed(.Bash)
 	}
 	return .Go, false
 }
@@ -125,7 +129,7 @@ scan :: proc(
 	if !installed(sidecar) {
 		return out, .Not_Installed
 	}
-	if sidecar == .Script || sidecar == .Python || sidecar == .Rust {
+	if sidecar != .Go && sidecar != .Odin {
 		return grep_scan(sidecar, files, allocator)
 	}
 	argv := make([]string, len(files) + 1, context.temp_allocator)

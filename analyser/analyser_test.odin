@@ -318,3 +318,47 @@ go_vet_reads_the_change :: proc(t: ^testing.T) {
 	}
 	_ = fmt.tprint(filepath.SEPARATOR)
 }
+
+@(test)
+reads_shellcheck :: proc(t: ^testing.T) {
+	sc, err := parse_shellcheck(
+		"/tree",
+		`{"comments":[{"file":"/tree/bin/deploy","line":2,"endLine":2,"column":4,"endColumn":6,"level":"info","code":2086,"message":"Double quote to prevent globbing and word splitting.","fix":{"replacements":[{"column":4,"line":2,"replacement":"\""}]}},
+{"file":"/tree/bin/deploy","line":3,"endLine":3,"column":6,"endColumn":8,"level":"warning","code":2154,"message":"x is referenced but not assigned.","fix":null},
+{"file":"/tree/bin/deploy","line":4,"endLine":4,"column":4,"endColumn":4,"level":"error","code":1088,"message":"Parsing stopped here. Invalid use of parentheses?","fix":null},
+{"file":"/tree/lib.sh","line":9,"endLine":9,"column":1,"endColumn":2,"level":"style","code":2006,"message":"Use $(...) notation instead of legacy backticks.","fix":null}]}`,
+		context.temp_allocator,
+	)
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, len(sc), 4)
+	if len(sc) == 4 {
+		// A code is reported as a number and read back as its SC name.
+		testing.expect_value(t, sc[0].code, "SC2086")
+		testing.expect_value(t, sc[0].file, "bin/deploy")
+		testing.expect_value(t, sc[0].severity, finding.Severity.Consider)
+		testing.expect(t, !sc[0].fault)
+		testing.expect_value(t, sc[1].severity, finding.Severity.Consider)
+		// A script that does not parse does not run, so an error belongs
+		// to the change wherever it lands.
+		testing.expect_value(t, sc[2].severity, finding.Severity.Must_Fix)
+		testing.expect(t, sc[2].fault)
+		testing.expect_value(t, sc[3].severity, finding.Severity.Note)
+		testing.expect_value(t, sc[3].file, "lib.sh")
+	}
+	// A stub that handed the input back would satisfy a test that only
+	// asked for some text, so the reason is read too, and the report with
+	// it: prose yields no diagnostics at all.
+	none, prose := parse_shellcheck("/tree", "not json", context.temp_allocator)
+	testing.expect_value(t, len(none), 0)
+	testing.expect_value(t, prose, "shellcheck: its answer is not JSON")
+}
+
+@(test)
+shellcheck_covers_a_script_by_its_dialect :: proc(t: ^testing.T) {
+	// Every other analyser reads a language by extension. A shell script
+	// is named for the command it is, so the dialect is what says so.
+	testing.expect(t, shellcheck.covers("bin/deploy", "bash"))
+	testing.expect(t, shellcheck.covers("lib.sh", "sh"))
+	testing.expect(t, !shellcheck.covers("bin/deploy", ""))
+	testing.expect(t, !shellcheck.covers("main.go", ""))
+}

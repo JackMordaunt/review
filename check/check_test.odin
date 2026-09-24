@@ -529,9 +529,14 @@ names_are_measured :: proc(t: ^testing.T) {
 		stutter(c.s, &out)
 		testing.expectf(t, (len(out) == 1) == c.fires, "%s in %s: %v", c.s.name, c.s.pkg, out)
 	}
-	for c in ([]Stutter{{{name = "len", file = "x.go"}, true}, {{name = "url", file = "x.go"}, true}, {{name = "Promise", file = "x.ts"}, true}, {{name = "render", file = "x.go"}, false}, {{name = "len", file = "x.ts"}, false}, {{name = "Promise", file = "x.go"}, false}}) {
+	Shadowed :: struct {
+		s:     change.Symbol,
+		shell: string,
+		fires: bool,
+	}
+	for c in ([]Shadowed{{{name = "len", file = "x.go"}, "", true}, {{name = "url", file = "x.go"}, "", true}, {{name = "Promise", file = "x.ts"}, "", true}, {{name = "render", file = "x.go"}, "", false}, {{name = "len", file = "x.ts"}, "", false}, {{name = "Promise", file = "x.go"}, "", false}, {{name = "cd", file = "bin/deploy"}, "bash", true}, {{name = "grep", file = "lib.sh"}, "sh", true}, {{name = "deploy", file = "bin/deploy"}, "bash", false}, {{name = "cd", file = "x.go"}, "", false}}) {
 		out := make([dynamic]finding.Finding, context.temp_allocator)
-		shadow(c.s, &out)
+		shadow(c.s, c.shell, &out)
 		testing.expectf(t, (len(out) == 1) == c.fires, "%s in %s: %v", c.s.name, c.s.file, out)
 	}
 	for p in ([]Pair(string, bool){{"loadCfg", true}, {"user_mgr", true}, {"BtnLabel", true}, {"msgCount", false}, {"parseURL", false}, {"ctx", false}, {"configure", false}}) {

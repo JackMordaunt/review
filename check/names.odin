@@ -21,6 +21,10 @@ globals: map[string]bool
 @(private = "file")
 builtins: map[string]bool
 @(private = "file")
+shell_builtins: map[string]bool
+@(private = "file")
+shell_utilities: map[string]bool
+@(private = "file")
 abbreviations: map[string]bool
 
 @(init)
@@ -51,6 +55,20 @@ init_name_lists :: proc "contextless" () {
 		locals map max min next object oct open ord pow print property range repr reversed round set setattr
 		slice sorted str sum super tuple type vars zip`,
 	)
+	// The shell's own builtins. A function that takes one replaces it for
+	// the rest of the script, and for everything the script sources.
+	shell_builtins = set(
+		`alias bg break cd command continue declare echo eval exec exit export false fg getopts
+		hash jobs kill local printf pwd read readonly return set shift source test times trap true type
+		typeset ulimit umask unalias unset wait`,
+	)
+	// The utilities a script reaches for as though they were the
+	// language. A function taking one of these names is a wrapper until
+	// the day somebody expects the utility.
+	shell_utilities = set(
+		`awk basename cat chmod cp curl cut date diff dirname find grep head install ln ls mkdir
+		mktemp mv rm sed sort tail tar tee touch tr uniq wc xargs`,
+	)
 	// The shortenings the discipline rejects. Established ones — id, url,
 	// ctx, msg, err, buf, cmd, tmp — are words in their own right.
 	abbreviations = set(
@@ -68,7 +86,7 @@ check_names :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 			continue
 		}
 		stutter(sym, out)
-		shadow(sym, out)
+		shadow(sym, change.shell_for(s.c, sym.file), out)
 		abbreviated(sym, out)
 	}
 }
@@ -118,10 +136,20 @@ stutter :: proc(sym: change.Symbol, out: ^[dynamic]finding.Finding) {
 // shadow reports a name the language or its runtime already means
 // something by: Go's predeclared identifiers and standard library
 // packages, the runtime's globals for TypeScript and JavaScript, the
-// builtins for Python.
-shadow :: proc(sym: change.Symbol, out: ^[dynamic]finding.Finding) {
+// builtins for Python, and the builtins and standard utilities for a
+// shell script.
+shadow :: proc(sym: change.Symbol, shell: string, out: ^[dynamic]finding.Finding) {
 	what, why: string
 	switch {
+	case shell != "":
+		switch {
+		case shell_builtins[sym.name]:
+			what, why = "a shell builtin", "the builtin is gone for this script and everything it sources"
+		case shell_utilities[sym.name]:
+			what, why =
+				"a standard utility",
+				"every later call means this function, whoever wrote the line"
+		}
 	case strings.has_suffix(sym.file, ".go"):
 		switch {
 		case predeclared[sym.name]:

@@ -12,7 +12,7 @@ import "../txt"
 // errors, which is the answer, not a failure.
 odin_check := Analyser {
 	name = "odin-check",
-	covers = proc(path: string) -> bool {return strings.has_suffix(path, ".odin")},
+	covers = proc(path, shell: string) -> bool {return strings.has_suffix(path, ".odin")},
 	ready = proc(tree_dir: string) -> (bool, string) {return on_path("odin"), ""},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		dirs := make(map[string]bool, context.temp_allocator)

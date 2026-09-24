@@ -68,12 +68,15 @@ Partner :: struct {
 // Declared is one declaration somewhere in the repository, which a new
 // name might turn out to duplicate.
 Declared :: struct {
-	name: string,
-	kind: string,
-	file: string,
-	line: int,
-	text: string,
-	body: string,
+	name:  string,
+	kind:  string,
+	file:  string,
+	line:  int,
+	text:  string,
+	body:  string,
+	// shell is the dialect of a file that is a script, which its name
+	// often does not say; empty for every other language.
+	shell: string,
 }
 
 // Gap is a file the deterministic side could not read, and why.
@@ -108,6 +111,9 @@ Change :: struct {
 	imports:    map[string][]string,
 	// uncovered are the code files no sidecar read, with a reason each.
 	uncovered:  [dynamic]Gap,
+	// shell is the dialect of each changed file that is a shell script,
+	// settled once from the name or the shebang; absent for the rest.
+	shell:      map[string]string,
 	// convention is the recent commit subjects, so a check can read the
 	// local habit; history is the last thousand, the word frequencies the
 	// message is measured against.
@@ -437,14 +443,28 @@ side :: proc(path, prefix: string) -> string {
 read :: proc(c: ^Change, t: tree.Tree, allocator := context.allocator) -> bool {
 	context.allocator = allocator
 	ok := true
+	// The dialect is settled first: the sidecar a file is read through,
+	// the analysers it is given to and the checks that know a shell
+	// builtin all ask for it, and a shebang is read once rather than
+	// three times.
+	c.shell = make(map[string]string)
 	for name in c.files {
-		if _, covered := frontend.sidecar_for(name); covered || !tree.exists(t, name) {
+		if !tree.exists(t, name) {
+			continue
+		}
+		if s := shell_at(t, name); s != "" {
+			c.shell[strings.clone(name)] = strings.clone(s)
+		}
+	}
+	for name in c.files {
+		if _, covered := frontend.sidecar_for(name, shell_for(c, name));
+		   covered || !tree.exists(t, name) {
 			continue
 		}
 		// A language no parser covers still has its comments read, by
 		// the prefixes the C-family shares; the jobs that need
 		// declarations or test bodies are named as unread for it.
-		if heuristic_covers(name) {
+		if heuristic_covers(name, shell_for(c, name)) {
 			if source, readable := tree.read(t, name, context.temp_allocator); readable {
 				append(&c.comments, ..comment_prose(source, name, c.added[name])[:])
 			}
@@ -466,7 +486,7 @@ read :: proc(c: ^Change, t: tree.Tree, allocator := context.allocator) -> bool {
 	for sidecar in frontend.Sidecar {
 		names := make([dynamic]string, context.temp_allocator)
 		for name in c.files {
-			if s, covered := frontend.sidecar_for(name);
+			if s, covered := frontend.sidecar_for(name, shell_for(c, name));
 			   covered && s == sidecar && tree.exists(t, name) {
 				append(&names, name)
 			}
@@ -605,9 +625,13 @@ skip_line :: proc(t: Function) -> int {
 }
 
 // heuristic_covers reports the languages whose comment shape is known
-// without a parser. Prose-only formats are left out: their text is not a
-// comment.
-heuristic_covers :: proc(path: string) -> bool {
+// without a parser: those named by extension, and any shell script,
+// whose dialect the caller has already settled. Prose-only formats are
+// left out: their text is not a comment.
+heuristic_covers :: proc(path: string, shell := "") -> bool {
+	if shell != "" {
+		return true
+	}
 	for ext in ([]string{".py", ".rb", ".rs", ".c", ".h", ".cc", ".cpp", ".hpp", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".lua", ".zig", ".swift", ".kt", ".java", ".php", ".scala", ".cs"}) {
 		if strings.has_suffix(path, ext) {
 			return true
@@ -756,7 +780,7 @@ read_file :: proc(c: ^Change, t: tree.Tree, name: string, file: frontend.File) {
 	// Go's sidecar reads comments with its parser; every other language's
 	// are read by shape, the same way for a parsed file and an unparsed
 	// one.
-	if s, _ := frontend.sidecar_for(name); s == .Go {
+	if s, _ := frontend.sidecar_for(name, shell_for(c, name)); s == .Go {
 		for comment in file.comments {
 			if touched[comment.line] {
 				append(
@@ -781,7 +805,7 @@ index :: proc(t: tree.Tree, allocator := context.allocator) -> (out: []Declared,
 	for sidecar in frontend.Sidecar {
 		names := make([dynamic]string, context.temp_allocator)
 		for name in tracked {
-			if s, covered := frontend.sidecar_for(name);
+			if s, covered := frontend.sidecar_for(name, shell_at(t, name));
 			   covered && s == sidecar && !is_test_file(name) {
 				append(&names, name)
 			}
@@ -803,16 +827,19 @@ index :: proc(t: tree.Tree, allocator := context.allocator) -> (out: []Declared,
 			if source, readable := tree.read(t, name, context.temp_allocator); readable {
 				lines = strings.split_lines(string(source), context.temp_allocator)
 			}
+			// The file is already read, so its shebang costs nothing.
+			shell := shell_of(name, lines[0] if len(lines) > 0 else "")
 			for decl in file.decls {
 				if decl.test || decl.local {
 					continue
 				}
 				entry := Declared {
-					name = strings.clone(decl.name),
-					kind = strings.clone(decl.kind),
-					file = name,
-					line = decl.line,
-					text = strings.clone(decl.text),
+					name  = strings.clone(decl.name),
+					kind  = strings.clone(decl.kind),
+					file  = name,
+					line  = decl.line,
+					text  = strings.clone(decl.text),
+					shell = strings.clone(shell),
 				}
 				if decl.kind == "func" {
 					entry.body = body_of(decl, lines)
@@ -873,6 +900,22 @@ scan_error :: proc(err: frontend.Scan_Error) -> string {
 		return "gave an answer that is not its JSON"
 	}
 	return ""
+}
+
+// shell_at is a file's dialect in the tree, reading its first line only
+// where the name does not answer for it.
+shell_at :: proc(t: tree.Tree, name: string) -> string {
+	line := tree.line(t, name, 1, context.temp_allocator) if needs_shebang(name) else ""
+	return shell_of(name, line)
+}
+
+// shell_for is a file's dialect as the gather settled it, falling back to
+// what the name alone says for a change nothing read.
+shell_for :: proc(c: ^Change, file: string) -> string {
+	if s, settled := c.shell[file]; settled {
+		return s
+	}
+	return shell_of(file, "")
 }
 
 // is_code_file reports a file a reader could plausibly exist for: not

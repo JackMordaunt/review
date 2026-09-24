@@ -219,6 +219,12 @@ is_test_file :: proc(path: string) -> bool {
 	   (strings.has_prefix(base, "test_") || strings.has_suffix(base, "_test.py")) {
 		return true
 	}
+	// A bats file is nothing but tests, and a .sh file prefixed test_ is
+	// named as one.
+	if strings.has_suffix(base, ".bats") ||
+	   (strings.has_suffix(base, ".sh") && strings.has_prefix(base, "test_")) {
+		return true
+	}
 	dir := path[:max(0, len(path) - len(base))]
 	for part in strings.split(dir, "/", context.temp_allocator) {
 		if part == "tests" || part == "__tests__" || part == "test" {

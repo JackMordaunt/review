@@ -8,7 +8,7 @@ import "jm:sh"
 
 import "../finding"
 
-is_go :: proc(path: string) -> bool {
+is_go :: proc(path, shell: string) -> bool {
 	return strings.has_suffix(path, ".go")
 }
 

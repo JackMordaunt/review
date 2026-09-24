@@ -45,7 +45,9 @@ Diagnostic :: struct {
 
 // Analyser is one compiler or analyser, run over the units the change's
 // files belong to. name prefixes its rule ids: name/code. covers is
-// whether a path is one of its language. ready is whether it can run in
+// whether a path is one of its language, given the shell dialect the
+// change settled for it, which is empty for everything that is not a
+// script. ready is whether it can run in
 // this tree, with the reason it cannot, told once. run analyses the units
 // the files belong to and returns what it found with paths relative to
 // the tree, or why it could not. in_place is whether it needs the working
@@ -53,7 +55,7 @@ Diagnostic :: struct {
 // read a range's materialised tree.
 Analyser :: struct {
 	name:     string,
-	covers:   proc(path: string) -> bool,
+	covers:   proc(path, shell: string) -> bool,
 	ready:    proc(tree: string) -> (ok: bool, why: string),
 	run:      proc(tree, root: string, files: []string) -> (found: []Diagnostic, err: string),
 	in_place: bool,
@@ -62,10 +64,11 @@ Analyser :: struct {
 // all is the compilers and analysers review knows how to run, in the
 // order their findings are worth having.
 all :: proc(allocator := context.temp_allocator) -> []Analyser {
-	list := make([]Analyser, 9, allocator)
+	list := make([]Analyser, 10, allocator)
 	list[0], list[1], list[2] = go_build, go_vet, staticcheck
 	list[3], list[4], list[5] = odin_check, tsc, ruff
 	list[6], list[7], list[8] = mypy, cargo, semgrep
+	list[9] = shellcheck
 	return list
 }
 
@@ -89,7 +92,7 @@ check :: proc(
 	for a in which {
 		files := make([dynamic]string, context.temp_allocator)
 		for f in c.files {
-			if a.covers(f) && tree.exists(t, f) {
+			if a.covers(f, change.shell_for(c, f)) && tree.exists(t, f) {
 				append(&files, f)
 			}
 		}

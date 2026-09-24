@@ -9,8 +9,8 @@ import "jm:sh"
 
 import "../finding"
 
-// grammar_of is whether a path is TypeScript or JavaScript.
-is_script :: proc(path: string) -> bool {
+// is_ecmascript is whether a path is TypeScript or JavaScript.
+is_ecmascript :: proc(path, shell: string) -> bool {
 	for ext in ([]string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}) {
 		if strings.has_suffix(path, ext) {
 			return true
@@ -25,7 +25,7 @@ is_script :: proc(path: string) -> bool {
 // working tree only.
 tsc := Analyser {
 	name = "tsc",
-	covers = is_script,
+	covers = is_ecmascript,
 	in_place = true,
 	ready = proc(tree_dir: string) -> (bool, string) {
 		return on_path("tsc") || os.is_file(join(tree_dir, "node_modules/.bin/tsc")), ""
@@ -97,7 +97,7 @@ parse_tsc :: proc(tree_dir, dir, out: string, allocator := context.allocator) ->
 	return found[:]
 }
 
-is_python :: proc(path: string) -> bool {
+is_python :: proc(path, shell: string) -> bool {
 	return strings.has_suffix(path, ".py")
 }
 
@@ -226,7 +226,7 @@ parse_mypy :: proc(tree_dir, out: string, allocator := context.allocator) -> []D
 // cache.
 cargo := Analyser {
 	name = "cargo",
-	covers = proc(path: string) -> bool {return strings.has_suffix(path, ".rs")},
+	covers = proc(path, shell: string) -> bool {return strings.has_suffix(path, ".rs")},
 	ready = proc(tree_dir: string) -> (bool, string) {return on_path("cargo"), ""},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		crates := make(map[string]bool, context.temp_allocator)
@@ -318,7 +318,7 @@ parse_cargo :: proc(tree_dir, dir, out: string, allocator := context.allocator) 
 // semgrep_languages are the extensions semgrep parses: its rules are
 // about patterns, not types, and say things a compiler does not.
 semgrep_languages :: `.go .ts .tsx .js .jsx .mjs .cjs .py .rs .java .kt .kts .rb .php .c .h .cc .cpp .hpp .cs
-	.swift .scala .lua .ex .exs .dart .sh .bash .tf .yaml .yml .json .html .sol`
+	.swift .scala .lua .ex .exs .dart .sh .bash .ksh .bats .tf .yaml .yml .json .html .sol`
 
 // semgrep_config is the rule set semgrep is pointed at: the repository's
 // own configuration where it has one — that is the repository's word on
@@ -339,7 +339,7 @@ semgrep_config :: proc(tree_dir: string) -> string {
 // kept as reported: ERROR must-fix, WARNING consider, INFO note.
 semgrep := Analyser {
 	name = "semgrep",
-	covers = proc(path: string) -> bool {
+	covers = proc(path, shell: string) -> bool {
 		for ext in strings.fields(semgrep_languages, context.temp_allocator) {
 			if strings.has_suffix(path, ext) {
 				return true

@@ -146,6 +146,66 @@ rs_rules := []Kind_Rule {
 	},
 }
 
+@(private = "file")
+sh_top :: "  not:\n    inside:\n      kind: function_definition\n      stopBy: end\n"
+
+// Bash: functions in either spelling, and the assignments and
+// declaration commands at the top level of the script. A shell has no
+// export keyword — a function in a sourced library is importable and one
+// in a command is not, which is the file's business rather than the
+// syntax's — so every top-level declaration is marked exported, as Odin's
+// are.
+@(private = "file")
+sh_rules := []Kind_Rule {
+	{"sh-func", "func", "  kind: function_definition\n", `^\s*(?:function\s+)?([\w:.\-]+)`, false},
+	{"sh-value", "value", "  kind: variable_assignment\n" + sh_top, `^\s*(\w+)=`, false},
+	{
+		"sh-export",
+		"value",
+		"  kind: declaration_command\n" + sh_top,
+		`^\s*(?:readonly|export|declare|typeset)\s+(?:-\w+\s+)*(\w+)`,
+		false,
+	},
+}
+
+// sh_parse_error is the rule that matches tree-sitter's own error node. It
+// declares nothing: it is the grammar reporting that it could not read
+// the file, and what it read of such a file is a part of it rather than
+// the whole. A partial reading is the one answer worse than none, because
+// the jobs cannot tell it from a complete one, so a file that returns
+// this rule is reported uncovered instead. The test
+// ast_grep_declines_a_bash_file_it_cannot_parse holds a script the
+// grammar fails on and the declaration it would otherwise have lost.
+sh_parse_error :: "sh-parse-error"
+
+// rules_of is the kind rules a sidecar reads its language by.
+rules_of :: proc(sidecar: Sidecar) -> []Kind_Rule {
+	switch sidecar {
+	case .Python:
+		return py_rules
+	case .Rust:
+		return rs_rules
+	case .Bash:
+		return sh_rules
+	case .Go, .Odin, .Script:
+	}
+	return nil
+}
+
+// language_of is the name ast-grep knows a sidecar's grammar by.
+language_of :: proc(sidecar: Sidecar) -> string {
+	switch sidecar {
+	case .Python:
+		return "Python"
+	case .Rust:
+		return "Rust"
+	case .Bash:
+		return "Bash"
+	case .Go, .Odin, .Script:
+	}
+	return ""
+}
+
 // grammar_of is the ast-grep grammar a path is parsed with, or empty
 // where none of the pattern grammars reads it.
 grammar_of :: proc(path: string) -> string {
@@ -165,8 +225,15 @@ grammar_of :: proc(path: string) -> string {
 
 // scratch_ext is the extension a file is materialised under, which is
 // what ast-grep infers the grammar from. The module variants of
-// JavaScript are the same grammar under another name.
-scratch_ext :: proc(path: string) -> string {
+// JavaScript are the same grammar under another name. Every shell script
+// is written as .sh, whatever it was called: most carry no extension at
+// all, so there is nothing for a grammar to be inferred from, and naming
+// the one this reads is what keeps a file out of a grammar it was never
+// checked against.
+scratch_ext :: proc(sidecar: Sidecar, path: string) -> string {
+	if sidecar == .Bash {
+		return ".sh"
+	}
 	ext := filepath.ext(path)
 	if ext == ".mjs" || ext == ".cjs" {
 		return ".js"
@@ -224,9 +291,9 @@ write_rules :: proc(sidecar: Sidecar, dir: string) -> bool {
 				) or_return
 			}
 		}
-	case .Python, .Rust:
-		language := "Python" if sidecar == .Python else "Rust"
-		for r in (py_rules if sidecar == .Python else rs_rules) {
+	case .Python, .Rust, .Bash:
+		language := language_of(sidecar)
+		for r in rules_of(sidecar) {
 			write_rule(
 				dir,
 				r.id,
@@ -235,6 +302,17 @@ write_rules :: proc(sidecar: Sidecar, dir: string) -> bool {
 					r.id,
 					language,
 					r.rule,
+				),
+			) or_return
+		}
+		if sidecar == .Bash {
+			write_rule(
+				dir,
+				sh_parse_error,
+				fmt.tprintf(
+					"id: %s\nlanguage: %s\nseverity: info\nrule:\n  kind: ERROR\n",
+					sh_parse_error,
+					language,
 				),
 			) or_return
 		}
@@ -309,7 +387,7 @@ grep_scan :: proc(
 		sources[i] = source
 		scratch :=
 			filepath.join(
-				{dir, fmt.tprintf("%04d%s", i, scratch_ext(name))},
+				{dir, fmt.tprintf("%04d%s", i, scratch_ext(sidecar, name))},
 				context.temp_allocator,
 			) or_else ""
 		if os.write_entire_file(scratch, source) != nil {
@@ -334,14 +412,33 @@ grep_scan :: proc(
 			comments = {},
 		}
 	}
+	// A grammar that could not read a file says so, with an error node.
+	// What it did read of that file is a partial reading, which is worse
+	// than none: the file is named as unread and nothing is taken from it.
+	unread := make([]bool, len(files), context.temp_allocator)
+	for m in matches {
+		if m.rule != sh_parse_error {
+			continue
+		}
+		if index, numbered := match_index(m, len(files)); numbered {
+			unread[index] = true
+		}
+	}
+	for i in 0 ..< len(files) {
+		if unread[i] {
+			out.files[i].error = strings.clone("ast-grep could not parse it", allocator)
+		}
+	}
 	// One declaration, several matches: the plain forms see the inner
 	// node of an export, and a test function is also a function. Keep the
 	// exported reading, and the test reading, of each line.
 	best := make(map[string]Grep_Match, context.temp_allocator)
 	for m in matches {
-		base := strings.trim_suffix(filepath.base(m.file), filepath.ext(m.file))
-		index, numbered := strconv.parse_int(base)
-		if !numbered || index < 0 || index >= len(files) {
+		if m.rule == sh_parse_error {
+			continue
+		}
+		index, numbered := match_index(m, len(files))
+		if !numbered || unread[index] {
 			continue
 		}
 		key := fmt.tprintf("%d:%d", index, m.range.start.line)
@@ -368,6 +465,17 @@ grep_scan :: proc(
 		out.files[i].decls = decls[i][:]
 	}
 	return out, .None
+}
+
+// match_index is which of the files given a match belongs to, read back
+// out of the numbered name it was materialised under.
+match_index :: proc(m: Grep_Match, count: int) -> (int, bool) {
+	base := strings.trim_suffix(filepath.base(m.file), filepath.ext(m.file))
+	index, numbered := strconv.parse_int(base)
+	if !numbered || index < 0 || index >= count {
+		return 0, false
+	}
+	return index, true
 }
 
 // prefer is whether a new match outranks the one already kept for a
@@ -413,7 +521,7 @@ read_match :: proc(
 		decl.name = strings.clone(name, allocator)
 		decl.kind = rule_kind(m.rule)
 		decl.exported = strings.contains(m.rule, "export")
-	case .Python, .Rust:
+	case .Python, .Rust, .Bash:
 		rule, known := kind_rule(sidecar, m.rule)
 		if !known {
 			return decl, false
@@ -428,8 +536,15 @@ read_match :: proc(
 		}
 		decl.name = strings.clone(cap.groups[1], allocator)
 		decl.kind = rule.kind
-		decl.exported =
-			!strings.has_prefix(decl.name, "_") if sidecar == .Python else strings.has_prefix(strings.trim_space(m.text), "pub")
+		switch sidecar {
+		case .Python:
+			decl.exported = !strings.has_prefix(decl.name, "_")
+		case .Rust:
+			decl.exported = strings.has_prefix(strings.trim_space(m.text), "pub")
+		case .Bash:
+			decl.exported = true
+		case .Go, .Odin, .Script:
+		}
 	case .Go, .Odin:
 		return decl, false
 	}
@@ -442,7 +557,7 @@ read_match :: proc(
 }
 
 kind_rule :: proc(sidecar: Sidecar, id: string) -> (Kind_Rule, bool) {
-	for r in (py_rules if sidecar == .Python else rs_rules) {
+	for r in rules_of(sidecar) {
 		if r.id == id {
 			return r, true
 		}

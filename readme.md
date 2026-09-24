@@ -85,6 +85,7 @@ plainest case of a test that cannot fail came out of the criteria that way.
 | `mypy/<code>` | `mypy --output json --ignore-missing-imports` on the changed files | a type error must-fix; working tree only |
 | `cargo/<code>` | `cargo clippy --message-format json`, or `cargo check` without clippy, per crate touched, into the repository's own target directory | an error must-fix wherever it lands, a warning consider |
 | `semgrep/<rule>` | `semgrep scan --json` under the repository's `.semgrep.yml`, or `--config p/default` without one, on the changed files it can parse | the rule's own severity: ERROR must-fix, WARNING consider, INFO note |
+| `shellcheck/SC<n>` | `shellcheck -f json1 -x` on the changed shell scripts, under the repository's own `.shellcheckrc` | an error must-fix wherever it lands — a script that does not parse does not run; a warning or an informational note consider, style a note |
 
 Each analyser runs only when its binary is on the path and the tree has what it needs, and
 says on stderr why it did not. The rule for what belongs to the change is the same for
@@ -120,7 +121,7 @@ noise on any struct not on a hot path.
 | `suppression-added` | dismissal comments the change adds | is the change dismissing what the readers would have found, before the readers ran? |
 | `test-deleted` | test functions the change removes, in Go, TypeScript, JavaScript, Python and Rust | is the change deleting the tests that would have failed? |
 | `no-stutter` | each exported name's first word against its package | does `ico.IcoEntry` say ico twice? `time.Time` is the idiom and is spared |
-| `no-shadow` | each new name against Go's predeclared identifiers and standard library packages, the JavaScript runtime's globals, or Python's builtins | does the name take a word the language already uses? |
+| `no-shadow` | each new name against Go's predeclared identifiers and standard library packages, the JavaScript runtime's globals, Python's builtins, or a shell's builtins and standard utilities | does the name take a word the language already uses? |
 | `abbreviation` | each word of a new name against a short list | is this `cfg`, `mgr`, `hdlr`, `svc`, `btn`, `cnt`: a word the reader expands rather than reads? |
 | `test-no-assertion` | each added or altered test's body | is there any call in it that could fail it — or does it pass whatever the code does, and fail only by crashing? |
 | `assertion-always-true` | each assertion in an added or altered test | does it assert a literal true, two literals, or a value against itself? |
@@ -130,7 +131,7 @@ noise on any struct not on a hot path.
 | `comment-restates-code` | each added comment's words against the line below it | does the comment say only what the code says? |
 | `todo-without-reference` | each added TODO, FIXME, XXX or HACK | does it name an issue, a ticket, a link or a person? |
 | `commented-out-code` | runs of added comment lines | is this code kept as a comment — two statement-shaped lines, or one beyond doubt? |
-| `debug-leftover` | added lines against the debugging shapes of each language | is this a `debugger`, a `breakpoint()`, a `dbg!`, a `spew.Dump`, a `console.log`, a `DEBUG` print? |
+| `debug-leftover` | added lines against the debugging shapes of each language | is this a `debugger`, a `breakpoint()`, a `dbg!`, a `spew.Dump`, a `console.log`, a `set -x`, a `DEBUG` print? |
 | `error-swallowed` | added lines against the dropping shapes of each language | is this `_ = err`, an empty `catch`, an `except` that passes? |
 | `new-symbol-unreferenced` | each new declaration's name as a whole word over every text file in the tree | does anything refer to it but its own line? A doc comment does not count |
 | `code-without-tests` | the added lines by file kind, and the tree's test files | does a change of 50 or more code lines touch no test, in a repository that keeps them? |
@@ -436,6 +437,14 @@ both print one JSON shape the tool reads. TypeScript and JavaScript — `.ts`,
 `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` — are read through ast-grep when it is on the
 path, by pattern; Python and Rust through the same ast-grep, by node kind — a function
 is whatever the grammar calls one, and its name is read out of the match.
+Shell scripts — bash, POSIX sh, ksh and bats — are read through the same ast-grep, by
+node kind. They are the one language here whose files usually carry no extension, so a
+script is recognised by its shebang, read once when the change is gathered and told to
+every reader after that. Where the Bash grammar cannot parse a file it says so, with an
+error node of its own, and the file is then named in `uncovered` rather than read in
+part: measured over 747 real scripts, every declaration the grammar missed was in a file
+carrying one, and every file without one was read exactly. zsh and fish are not read —
+nothing static analyses them well enough to be worth running.
 Every other language gets its comments read by shape, the message and history checks,
 and the line-shaped code checks; the jobs that need declarations or test bodies are
 skipped for its files, with a line on stderr saying so, and the files are named in the
@@ -446,7 +455,7 @@ everything after that is a loop over memory, the same on every system.
 ## What it is not
 
 It does not format, and it writes no analyser of its own where a language already has
-one: the compilers, vet, staticcheck, clippy, ruff, mypy and semgrep are run as they
-are, with their strictest settings, and their word is kept to the change. The code
+one: the compilers, vet, staticcheck, clippy, ruff, mypy, shellcheck and semgrep are run
+as they are, with their strictest settings, and their word is kept to the change. The code
 checks here measure what those tools leave alone — a test that asserts nothing, a body
 written twice, a name nothing refers to — and hand the rest to the readings.

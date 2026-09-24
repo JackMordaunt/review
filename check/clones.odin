@@ -9,6 +9,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:strings"
 
+import "../change"
 import "../finding"
 
 // The floors under which two bodies are not compared. Two one-line
@@ -57,10 +58,18 @@ init_keywords :: proc "contextless" () {
 		matrix or_else or_return or_break or_continue where do context true false nil int uint bool
 		string rune byte f32 f64 i8 i16 i32 i64 u8 u16 u32 u64 uintptr rawptr any typeid`,
 	)
+	keywords["sh"] = set(
+		`if then elif else fi for while until do done case esac in function select time coproc
+		local readonly declare typeset export unset return break continue shift trap eval exec source
+		set echo printf test true false cd read exit command builtin wait kill jobs umask getopts`,
+	)
 }
 
-// grammar_for is which keyword set a file's tokens are read with.
-grammar_for :: proc(path: string) -> string {
+// keywords_for is which keyword set a file's tokens are read with — not
+// the same question as grammar_of, which answers with an ast-grep
+// grammar. A shell script is told apart by its dialect rather than its
+// name: most carry no extension.
+keywords_for :: proc(path, shell: string) -> string {
 	switch {
 	case strings.has_suffix(path, ".go"):
 		return "go"
@@ -72,6 +81,8 @@ grammar_for :: proc(path: string) -> string {
 		return "rs"
 	case grammar_of(path) != "":
 		return "js"
+	case shell != "":
+		return "sh"
 	}
 	if dot := strings.last_index_byte(path, '.'); dot >= 0 {
 		return path[dot:]
@@ -300,7 +311,12 @@ check_clones :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 		if sym.kind != "func" || sym.body == "" || is_test_file(sym.file) {
 			continue
 		}
-		shape := normalise(sym.body, sym.name, grammar_for(sym.file), context.temp_allocator)
+		shape := normalise(
+			sym.body,
+			sym.name,
+			keywords_for(sym.file, change.shell_for(s.c, sym.file)),
+			context.temp_allocator,
+		)
 		if shape.tokens == 0 {
 			continue
 		}
@@ -314,7 +330,12 @@ check_clones :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 		if d.kind != "func" || d.body == "" {
 			continue
 		}
-		shape := normalise(d.body, d.name, grammar_for(d.file), context.temp_allocator)
+		shape := normalise(
+			d.body,
+			d.name,
+			keywords_for(d.file, d.shell),
+			context.temp_allocator,
+		)
 		if shape.tokens == 0 {
 			continue
 		}

@@ -236,8 +236,86 @@ doc_above_reads_the_block :: proc(t: ^testing.T) {
 	lines := []string{"x", "/** Two", " * lines */", "// and one", "const a = 1"}
 	testing.expect_value(t, doc_above(lines, 5, context.temp_allocator), "Two lines and one")
 	testing.expect_value(t, doc_above(lines, 1, context.temp_allocator), "")
-	testing.expect_value(t, scratch_ext("a/b.mjs"), ".js")
+	testing.expect_value(t, scratch_ext(.Script, "a/b.mjs"), ".js")
+	testing.expect_value(t, scratch_ext(.Bash, "bin/deploy"), ".sh")
 	testing.expect_value(t, grammar_of("a.tsx"), "tsx")
 	testing.expect(t, typed("export type $N = $$$B"))
 	testing.expect(t, !typed("export const $N = $$$V"))
+}
+
+@(test)
+ast_grep_reads_bash :: proc(t: ^testing.T) {
+	if !installed(.Bash) {
+		testing.fail_now(t, "ast-grep is not on the path")
+	}
+	sh := write_fixture(
+		t,
+		"review_grep_fixture.sh",
+		`#!/usr/bin/env bash
+set -euo pipefail
+
+readonly RETRIES=3
+TARGET=production
+export DESTINATION="/srv"
+
+# deploy sends one artefact and says what the host said.
+deploy() {
+  local artefact=$1
+  echo "sending $artefact"
+}
+
+function rollback {
+  echo back
+}
+`,
+	)
+	defer os.remove(sh)
+	out, err := scan(.Bash, {sh}, context.temp_allocator)
+	testing.expect_value(t, err, Scan_Error.None)
+	testing.expect_value(t, out.files[0].error, "")
+	by := make(map[string]Decl, context.temp_allocator)
+	for d in out.files[0].decls {
+		by[d.name] = d
+	}
+	// The three top-level values, and both spellings of a function. The
+	// local inside deploy is not a declaration of the script's.
+	testing.expect_value(t, len(by), 5)
+	testing.expect_value(t, by["RETRIES"].kind, "value")
+	testing.expect_value(t, by["TARGET"].kind, "value")
+	testing.expect_value(t, by["DESTINATION"].kind, "value")
+	testing.expect_value(t, by["deploy"].kind, "func")
+	testing.expect(t, by["deploy"].exported)
+	testing.expect_value(t, by["deploy"].doc, "deploy sends one artefact and says what the host said.")
+	testing.expect_value(t, by["deploy"].end_line, 12)
+	testing.expect_value(t, by["rollback"].kind, "func")
+}
+
+@(test)
+ast_grep_declines_a_bash_file_it_cannot_parse :: proc(t: ^testing.T) {
+	if !installed(.Bash) {
+		testing.fail_now(t, "ast-grep is not on the path")
+	}
+	// An extglob pattern defeats the grammar, and the error node it
+	// leaves swallows the function below it. A partial reading is worse
+	// than none, so the file is declined whole.
+	sh := write_fixture(
+		t,
+		"review_grep_broken.sh",
+		`#!/usr/bin/env bash
+print_saved() {
+  for f in "${1}"?(.+([0-9])); do
+    printf '%s\0' "$f"
+  done
+}
+
+cache_tar() {
+  echo tar
+}
+`,
+	)
+	defer os.remove(sh)
+	out, err := scan(.Bash, {sh}, context.temp_allocator)
+	testing.expect_value(t, err, Scan_Error.None)
+	testing.expect_value(t, out.files[0].error, "ast-grep could not parse it")
+	testing.expect_value(t, len(out.files[0].decls), 0)
 }

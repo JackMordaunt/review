@@ -357,3 +357,52 @@ candidates_rank_by_shared_words :: proc(t: ^testing.T) {
 		`["ico", "Entry", "size"]`,
 	)
 }
+
+@(test)
+settles_the_shell_dialect :: proc(t: ^testing.T) {
+	Case :: struct {
+		path, first_line, shell: string,
+	}
+	for c in ([]Case {
+			// An extension answers for itself, and the first line is not read.
+			{"lib.sh", "", "sh"},
+			{"build.bash", "", "bash"},
+			{"suite.bats", "", "bats"},
+			{"tools/run.ksh", "", "ksh"},
+			{".bashrc", "", "bash"},
+			{".profile", "", "sh"},
+			// A script named for the command it is says so in its shebang.
+			{"bin/deploy", "#!/usr/bin/env bash", "bash"},
+			{"bin/deploy", "#!/bin/bash -eu", "bash"},
+			{"bin/deploy", "#!/usr/bin/env -S bash -eu", "bash"},
+			{"configure", "#!/bin/sh", "sh"},
+			{"bin/old", "#!/bin/dash", "sh"},
+			{"bin/korn", "#!/usr/bin/ksh93", "ksh"},
+			// Not a shell, however it is spelled.
+			{"bin/tool", "#!/usr/bin/env python3", ""},
+			{"bin/tool", "#!/usr/bin/env zsh", ""},
+			{"bin/tool", "#!/usr/bin/env fish", ""},
+			{"bin/tool", "", ""},
+			{"notes.md", "#!/bin/bash", ""},
+			{"theme.zsh", "", ""},
+			{"main.go", "", ""},
+		}) {
+		testing.expectf(
+			t,
+			shell_of(c.path, c.first_line) == c.shell,
+			"%s (%s): %s",
+			c.path,
+			c.first_line,
+			shell_of(c.path, c.first_line),
+		)
+	}
+	// Only a name that answers nothing is worth opening the file for.
+	testing.expect(t, needs_shebang("bin/deploy"))
+	testing.expect(t, !needs_shebang("lib.sh"))
+	testing.expect(t, !needs_shebang(".bashrc"))
+	// A file no reader could exist for is never opened to ask.
+	testing.expect(t, !needs_shebang("Makefile"))
+	testing.expect(t, !needs_shebang("LICENSE"))
+	testing.expect(t, heuristic_covers("bin/deploy", "bash"))
+	testing.expect(t, !heuristic_covers("bin/deploy", ""))
+}

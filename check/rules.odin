@@ -99,7 +99,7 @@ rules := []Rule {
 	{"no-stutter", "an exported name's first word is its package: ico.IcoEntry says ico twice"},
 	{
 		"no-shadow",
-		"a new name is a predeclared identifier, a standard library package, or a runtime global",
+		"a new name is a predeclared identifier, a standard library package, a runtime global, or a shell builtin",
 	},
 	{"abbreviation", "a new name carries an invented abbreviation: cfg, mgr, hdlr, svc, btn, cnt"},
 	{
@@ -136,7 +136,7 @@ rules := []Rule {
 	},
 	{
 		"debug-leftover",
-		"an added line is a debugger statement, a breakpoint, dbg!, spew.Dump, console.log, or a DEBUG print",
+		"an added line is a debugger statement, a breakpoint, dbg!, spew.Dump, console.log, set -x, or a DEBUG print",
 	},
 	{
 		"error-swallowed",

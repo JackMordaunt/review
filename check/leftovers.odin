@@ -17,19 +17,25 @@ import "../finding"
 // output and a debug print share a function.
 Debug_Marker :: struct {
 	suffixes: []string,
+	// shell marks a pattern that belongs to any shell script, whose name
+	// usually does not say that it is one.
+	shell:    bool,
 	pattern:  string,
 	severity: finding.Severity,
 }
 
 @(private = "file")
 debug_markers := []Debug_Marker {
-	{{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}, `^\s*debugger\s*;?\s*$`, .Consider},
-	{{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}, `\bconsole\.(log|debug|trace)\(`, .Note},
-	{{".py"}, `\b(breakpoint\(\)|pdb\.set_trace\(\)|ipdb\.set_trace\(\))`, .Consider},
-	{{".rs"}, `\bdbg!\(`, .Consider},
-	{{".go"}, `\b(spew\.Dump|litter\.Dump|pp\.Print)\(`, .Consider},
-	{{".rb"}, `\b(binding\.pry|byebug|debugger)\b`, .Consider},
-	{nil, `\b(Printf|Println|Print|log|print|debug)\(\s*["'](DEBUG|XXX|HERE|>>>)`, .Consider},
+	{{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}, false, `^\s*debugger\s*;?\s*$`, .Consider},
+	{{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}, false, `\bconsole\.(log|debug|trace)\(`, .Note},
+	{{".py"}, false, `\b(breakpoint\(\)|pdb\.set_trace\(\)|ipdb\.set_trace\(\))`, .Consider},
+	{{".rs"}, false, `\bdbg!\(`, .Consider},
+	{nil, true, `^\s*set\s+-[a-z]*x[a-z]*\b`, .Consider},
+	{nil, true, `^\s*set\s+-o\s+xtrace\b`, .Consider},
+	{nil, true, `^\s*PS4=`, .Consider},
+	{{".go"}, false, `\b(spew\.Dump|litter\.Dump|pp\.Print)\(`, .Consider},
+	{{".rb"}, false, `\b(binding\.pry|byebug|debugger)\b`, .Consider},
+	{nil, false, `\b(Printf|Println|Print|log|print|debug)\(\s*["'](DEBUG|XXX|HERE|>>>)`, .Consider},
 }
 
 // check_debug_leftovers reports the debugging a change adds and did not
@@ -43,6 +49,9 @@ check_debug_leftovers :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 		for l in lines {
 			for m in debug_markers {
 				if m.suffixes != nil && !has_suffix(file, m.suffixes) {
+					continue
+				}
+				if m.shell && change.shell_for(s.c, file) == "" {
 					continue
 				}
 				if !matches(m.pattern, l.text) {
