@@ -35,14 +35,14 @@ all :: proc(allocator := context.temp_allocator) -> []Job {
 	jobs := make([]Job, 5, allocator)
 	jobs[0] = Job {
 		"duplication",
-		#load("../../criteria/duplication.md", string),
+		#load("../criteria/duplication.md", string),
 		duplication_subject,
 		true,
 	}
-	jobs[1] = Job{"tests", #load("../../criteria/tests.md", string), tests_subject, true}
-	jobs[2] = Job{"namer", #load("../../criteria/namer.md", string), namer_subject, true}
-	jobs[3] = Job{"claims", #load("../../criteria/claims.md", string), claims_subject, true}
-	jobs[4] = Job{"hygiene", #load("../../criteria/hygiene.md", string), hygiene_subject, false}
+	jobs[1] = Job{"tests", #load("../criteria/tests.md", string), tests_subject, true}
+	jobs[2] = Job{"namer", #load("../criteria/namer.md", string), namer_subject, true}
+	jobs[3] = Job{"claims", #load("../criteria/claims.md", string), claims_subject, true}
+	jobs[4] = Job{"hygiene", #load("../criteria/hygiene.md", string), hygiene_subject, false}
 	return jobs
 }
 

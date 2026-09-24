@@ -15,7 +15,6 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:odin/ast"
 import "core:odin/parser"
-import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 
@@ -58,7 +57,9 @@ main :: proc() {
 }
 
 read_file :: proc(path: string, src: []byte) -> File_Result {
-	result := File_Result{name = path}
+	result := File_Result {
+		name = path,
+	}
 	file := new(ast.File)
 	file.fullpath = path
 	file.src = string(src)
@@ -73,18 +74,18 @@ read_file :: proc(path: string, src: []byte) -> File_Result {
 		}
 		private := is_private(decl.attributes[:])
 		for name_expr in decl.names {
-			ident, ok := name_expr.derived_expr.(^ast.Ident)
-			if !ok {
+			ident, is_ident := name_expr.derived_expr.(^ast.Ident)
+			if !is_ident {
 				continue
 			}
-			entry := Decl{
-				name =     ident.name,
-				kind =     kind_of(decl),
-				line =     int(name_expr.pos.line),
+			entry := Decl {
+				name     = ident.name,
+				kind     = kind_of(decl),
+				line     = int(name_expr.pos.line),
 				end_line = int(stmt.end.line),
 				exported = private == false,
-				text =     line_text(src, name_expr.pos.line),
-				doc =      doc_text(decl.docs),
+				text     = line_text(src, name_expr.pos.line),
+				doc      = doc_text(decl.docs),
 			}
 			if kind_of(decl) == "func" {
 				entry.test = is_test(decl.attributes[:])
@@ -117,11 +118,20 @@ expr_kind :: proc(e: ast.Any_Expr) -> string {
 		return "func"
 	case ^ast.Proc_Group:
 		return "func"
-	case ^ast.Struct_Type, ^ast.Union_Type, ^ast.Enum_Type,
-	     ^ast.Bit_Set_Type, ^ast.Distinct_Type, ^ast.Poly_Type,
-	     ^ast.Typeid_Type, ^ast.Pointer_Type, ^ast.Array_Type,
-	     ^ast.Dynamic_Array_Type, ^ast.Fixed_Capacity_Dynamic_Array_Type,
-	     ^ast.Map_Type, ^ast.Relative_Type, ^ast.Matrix_Type,
+	case ^ast.Struct_Type,
+	     ^ast.Union_Type,
+	     ^ast.Enum_Type,
+	     ^ast.Bit_Set_Type,
+	     ^ast.Distinct_Type,
+	     ^ast.Poly_Type,
+	     ^ast.Typeid_Type,
+	     ^ast.Pointer_Type,
+	     ^ast.Array_Type,
+	     ^ast.Dynamic_Array_Type,
+	     ^ast.Fixed_Capacity_Dynamic_Array_Type,
+	     ^ast.Map_Type,
+	     ^ast.Relative_Type,
+	     ^ast.Matrix_Type,
 	     ^ast.Bit_Field_Type:
 		return "type"
 	case:
@@ -154,8 +164,9 @@ is_test :: proc(attributes: []^ast.Attribute) -> bool {
 is_private :: proc(attributes: []^ast.Attribute) -> bool {
 	for attribute in attributes {
 		for elem in attribute.elems {
-			if field, ok := elem.derived_expr.(^ast.Field_Value); ok {
-				if name, ok := field.field.derived_expr.(^ast.Ident); ok && name.name == "private" {
+			if field, is_field := elem.derived_expr.(^ast.Field_Value); is_field {
+				if name, named := field.field.derived_expr.(^ast.Ident);
+				   named && name.name == "private" {
 					return true
 				}
 			}

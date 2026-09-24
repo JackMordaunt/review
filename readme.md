@@ -27,6 +27,17 @@ review hook install             the commit-msg hook that makes the review a gate
 review agent                    what an agent's instructions should say about this tool
 ```
 
+## Building
+
+The tool is written in Odin, on the `jfm` collection (`~/Source/Personal/odin`), and
+reads each language through a sidecar built on that language's own parser. `just build`
+compiles the four binaries into `build/`; `just install` puts them beside each other on
+the path: `review`, `review-go` (Go's parser, from `sidecar/gofront`), `review-vet` (go
+vet's multichecker, from `sidecar/govet`) and `odin-review-extract` (Odin's parser, from
+`sidecar/odin`). `just test` type-checks and runs every package's tests and the Go
+sidecar's. The repository's own `ols.json` names the collection for the editor and for
+the `odin-check` analyser.
+
 ## The jobs
 
 Each is a separate call, run at once, given only the part of the change it needs. A job
@@ -88,11 +99,8 @@ and skip.
 from `golang.org/x/tools/go/analysis/passes` that vet leaves out — `nilness` (nil
 dereferences and impossible comparisons, from SSA), `atomicalign`, `deepequalerrors`,
 `httpmux`, `reflectvaluecompare`, `scannererr`, `sortslice`, `sqlrowserr`, `shadow`,
-`unusedwrite`, and the `modernize` suite. Build it and put it on the path:
-
-```
-go build -o ~/go/bin/review-vet ./sidecar/govet
-```
+`unusedwrite`, and the `modernize` suite. `just install` builds it and puts it on the
+path beside `review`.
 
 Without it, vet runs its default set. `fieldalignment` is left out on purpose: it is
 noise on any struct not on a hot path.
@@ -414,33 +422,21 @@ it worth reading.
 
 ## The eval set
 
-`eval_test.go` holds the cases with a known right answer — two revisions of a corpus
-repository and three written for the purpose — and scores a reading against them. It is
-off unless asked for, because it is the only thing here that spends money:
-
-```
-go test -run TestEval -eval=1              # one reading of each case
-go test -run TestEval -eval=3 -eval.show   # three, printing every finding
-go test -run TestEval -eval=1 -eval.cases=duplication
-```
-
-`REVIEW_EVAL_CORPUS` names the repository the corpus cases read; they skip without it.
-More than one run per case is worth having: a single reading walks between the two
-failure directions rather than sitting at one.
-
-A case says what a reading must find and what it must not raise. The silences matter
-more: the persistent failure is reporting something true and unwanted, and every rule
-in `criteria/` that reads like an exception was written to stop one.
+The eval harness went with the Go implementation it was written in: `eval_test.go` held
+the cases with a known right answer and scored a reading against them, and porting it is
+the open item in `handover.md`. Until then the measure of a reading is the side-by-side
+run the port was checked with: both tools on the same change, the reports diffed field
+by field, and the answer cache shared so a replayed answer is compared rather than
+re-asked.
 
 ## Languages
 
-Go is read with the standard library's parser; the same reading ships as the `review-go`
-sidecar, built from `sidecar/gofront`, for a reviewer written in another language — the
-Odin reading under `odin/` drives it and `odin-review-extract` through one JSON shape. TypeScript and JavaScript — `.ts`,
+Go is read through the `review-go` sidecar, built from `sidecar/gofront` on Go's own
+parser, and Odin through `odin-review-extract`, built from `sidecar/odin` on Odin's;
+both print one JSON shape the tool reads. TypeScript and JavaScript — `.ts`,
 `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` — are read through ast-grep when it is on the
 path, by pattern; Python and Rust through the same ast-grep, by node kind — a function
-is whatever the grammar calls one, and its name is read out of the match. Odin is read
-through the `odin-review-extract` sidecar, built from this repository, when it is.
+is whatever the grammar calls one, and its name is read out of the match.
 Every other language gets its comments read by shape, the message and history checks,
 and the line-shaped code checks; the jobs that need declarations or test bodies are
 skipped for its files, with a line on stderr saying so, and the files are named in the
