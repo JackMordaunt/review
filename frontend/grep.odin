@@ -192,7 +192,10 @@ rules_of :: proc(sidecar: Sidecar) -> []Kind_Rule {
 	return nil
 }
 
-// language_of is the name ast-grep knows a sidecar's grammar by.
+// language_of is the name ast-grep knows a sidecar's grammar by. This is
+// not the question binary answers: several sidecars share one binary, and
+// the grammar it is asked for is a different name entirely.
+//review:ignore duplication/already-named binary names the program to run, this names the grammar to ask it for
 language_of :: proc(sidecar: Sidecar) -> string {
 	switch sidecar {
 	case .Python:

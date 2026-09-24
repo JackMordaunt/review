@@ -9,8 +9,8 @@ import "jm:sh"
 
 import "../finding"
 
-// is_ecmascript is whether a path is TypeScript or JavaScript.
-is_ecmascript :: proc(path, shell: string) -> bool {
+// is_typescript_or_javascript is whether a path is one of the two.
+is_typescript_or_javascript :: proc(path, shell: string) -> bool {
 	for ext in ([]string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}) {
 		if strings.has_suffix(path, ext) {
 			return true
@@ -25,7 +25,7 @@ is_ecmascript :: proc(path, shell: string) -> bool {
 // working tree only.
 tsc := Analyser {
 	name = "tsc",
-	covers = is_ecmascript,
+	covers = is_typescript_or_javascript,
 	in_place = true,
 	ready = proc(tree_dir: string) -> (bool, string) {
 		return on_path("tsc") || os.is_file(join(tree_dir, "node_modules/.bin/tsc")), ""

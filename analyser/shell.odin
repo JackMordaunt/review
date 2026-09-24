@@ -15,8 +15,7 @@ import "../finding"
 // names a dialect or a rule set, so whatever shellcheck settles on and
 // whatever .shellcheckrc asks for is what stands, the same courtesy tsc
 // and ruff are given with their projects' own settings. -x is asked for
-// so that a script split across a library is offered whole rather than a
-// file at a time.
+// because a script split across a library is meant to be read as one.
 shellcheck := Analyser {
 	name = "shellcheck",
 	covers = proc(path, shell: string) -> bool {return shell != ""},
