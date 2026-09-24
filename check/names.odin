@@ -55,8 +55,10 @@ init_name_lists :: proc "contextless" () {
 		locals map max min next object oct open ord pow print property range repr reversed round set setattr
 		slice sorted str sum super tuple type vars zip`,
 	)
-	// The shell's own builtins. A function that takes one of these names
-	// is what the rest of the script reaches instead.
+	// Bash's builtins, which cover the dialects read here — sh and ksh
+	// declare fewer, and a name none of them takes is only a name. A
+	// function given one of these is what the rest of the script reaches
+	// instead.
 	shell_builtins = set(
 		`alias bg break cd command continue declare echo eval exec exit export false fg getopts
 		hash jobs kill local printf pwd read readonly return set shift source test times trap true type
