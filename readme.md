@@ -424,7 +424,7 @@ it worth reading.
 
 The eval harness went with the Go implementation it was written in: `eval_test.go` held
 the cases with a known right answer and scored a reading against them, and porting it is
-the open item in `handover.md`. Until then the measure of a reading is the side-by-side
+the open item in the Brain's `review/handover.md`. Until then the measure of a reading is the side-by-side
 run the port was checked with: both tools on the same change, the reports diffed field
 by field, and the answer cache shared so a replayed answer is compared rather than
 re-asked.
