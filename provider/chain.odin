@@ -17,23 +17,19 @@ Entry :: struct {
 }
 
 // default_chain is the configured preference. The direct API is tried
-// before the coding assistant, because it can enforce the answer's shape
-// and reports usage; the local gateway is last, as the reading of last
-// resort. REVIEW_MODEL re-points the first slot.
+// first, because it can enforce the answer's shape and reports usage;
+// then the coding assistant on the path, which holds its own credentials
+// and so answers on a machine with no key set; the local gateway is last,
+// as the reading of last resort. REVIEW_MODEL re-points the first slot.
 default_chain :: proc(allocator := context.temp_allocator) -> []Entry {
 	model := os.get_env("REVIEW_MODEL", allocator)
 	if model == "" {
 		model = default_api_model
 	}
-	entries := make([]Entry, 2, allocator)
-	entries[0] = Entry {
-		strings.concatenate({"api/", model}, allocator),
-		Provider{kind = .Api, model = model},
-	}
-	entries[1] = Entry {
-		"pi/maple/glm-5-3-flash",
-		Provider{kind = .Pi, model = "glm-5-3-flash", upstream = "maple"},
-	}
+	entries := make([]Entry, 3, allocator)
+	entries[0] = Entry{strings.concatenate({"api/", model}, allocator), Provider{kind = .Api, model = model}}
+	entries[1] = Entry{strings.concatenate({"claude/", default_claude_model}, allocator), Provider{kind = .Claude, model = default_claude_model}}
+	entries[2] = Entry{"pi/maple/glm-5-3-flash", Provider{kind = .Pi, model = "glm-5-3-flash", upstream = "maple"}}
 	return entries
 }
 

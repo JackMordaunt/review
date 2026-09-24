@@ -34,6 +34,15 @@ names_carry_the_model :: proc(t: ^testing.T) {
 }
 
 @(test)
+the_chain_tries_the_assistant_between_api_and_gateway :: proc(t: ^testing.T) {
+	chain := default_chain(context.temp_allocator)
+	testing.expect_value(t, len(chain), 3)
+	testing.expect_value(t, chain[0].provider.kind, Kind.Api)
+	testing.expect_value(t, chain[1].name, "claude/sonnet")
+	testing.expect_value(t, chain[2].provider.kind, Kind.Pi)
+}
+
+@(test)
 pi_answers_from_its_stream :: proc(t: ^testing.T) {
 	out := `{"type":"message_start"}
 {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"{\"findings\":[]}"}],"usage":{"input":10,"output":2,"cacheRead":1,"cost":{"total":0.5}},"stopReason":"stop"}}
@@ -72,6 +81,8 @@ command_answers_whole_or_by_field :: proc(t: ^testing.T) {
 	testing.expect_value(t, field("not json", "answer", context.temp_allocator), "not json")
 	_, err = ask(Provider{kind = .Command}, "s", "u", context.temp_allocator)
 	testing.expect(t, strings.contains(err, "names no command"))
+	_, err = ask(p, "s", "  \n", context.temp_allocator)
+	testing.expect_value(t, err, "nothing to ask: the prompt is empty")
 	_, err = ask(Provider{kind = .Command, argv = {"false"}}, "s", "u", context.temp_allocator)
 	testing.expect(t, strings.contains(err, "exit 1"))
 }

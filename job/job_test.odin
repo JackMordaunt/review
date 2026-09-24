@@ -195,5 +195,25 @@ parts_cut_a_large_subject_by_file :: proc(t: ^testing.T) {
 		change.Symbol{name = "S", kind = "func", file = "a.go", line = 1, signature = "short"},
 	)
 	testing.expect_value(t, len(parts(j, &small, context.temp_allocator)), 1)
-	testing.expect(t, !contributes(&c, "c.md"))
+	// A file the job reads nothing from is in no part: the tests job
+	// reads a test file, the namer does not.
+	tests_only := change.Change{files = {"a.go", "a_test.go"}}
+	tests_only.symbols = make([dynamic]change.Symbol)
+	append(&tests_only.symbols, change.Symbol{name = "S", kind = "func", file = "a.go", line = 1, signature = strings.repeat("x", 17000)})
+	tests_only.tests = make([dynamic]change.Function)
+	append(&tests_only.tests, change.Function{name = "TestS", file = "a_test.go", line = 1, body = strings.repeat("y", 17000)})
+	namer_pieces := parts(all(context.temp_allocator)[2], &tests_only, context.temp_allocator)
+	testing.expect_value(t, len(namer_pieces), 1)
+	if len(namer_pieces) == 1 {
+		testing.expect_value(t, len(namer_pieces[0].files), 1)
+		testing.expect_value(t, namer_pieces[0].files[0], "a.go")
+	}
+	for piece in namer_pieces {
+		testing.expect(t, strings.trim_space(all(context.temp_allocator)[2].subject(piece, context.temp_allocator)) != "", "an empty part is never asked")
+	}
+	tests_pieces := parts(all(context.temp_allocator)[1], &tests_only, context.temp_allocator)
+	testing.expect_value(t, len(tests_pieces), 1)
+	if len(tests_pieces) == 1 {
+		testing.expect_value(t, tests_pieces[0].files[0], "a_test.go")
+	}
 }

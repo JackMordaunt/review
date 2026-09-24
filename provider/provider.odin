@@ -121,6 +121,9 @@ ask :: proc(
 	Answer,
 	string,
 ) {
+	if strings.trim_space(user) == "" {
+		return {}, "nothing to ask: the prompt is empty"
+	}
 	switch p.kind {
 	case .Claude:
 		return ask_claude(p, system, user, allocator)
@@ -144,6 +147,9 @@ ask_verdict :: proc(
 	Answer,
 	string,
 ) {
+	if strings.trim_space(user) == "" {
+		return {}, "nothing to ask: the prompt is empty"
+	}
 	if p.kind == .Api {
 		return ask_api(p, system, user, verdicts_tool, allocator)
 	}

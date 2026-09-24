@@ -234,13 +234,20 @@ run :: proc(flags: Flags) -> int {
 
 	if flags.show {
 		for j in jobs {
-			subject := j.subject(&c, context.temp_allocator)
-			fmt.printfln("=== %s ===", j.name)
-			if strings.trim_space(subject) == "" {
-				fmt.print("(nothing to read)\n\n")
-				continue
+			pieces := job.parts(j, &c, context.temp_allocator)
+			for piece, i in pieces {
+				subject := j.subject(piece, context.temp_allocator)
+				if len(pieces) > 1 {
+					fmt.printfln("=== %s (part %d of %d) ===", j.name, i + 1, len(pieces))
+				} else {
+					fmt.printfln("=== %s ===", j.name)
+				}
+				if strings.trim_space(subject) == "" {
+					fmt.print("(nothing to read)\n\n")
+					continue
+				}
+				fmt.printfln("%s", subject)
 			}
-			fmt.printfln("%s", subject)
 		}
 		fmt.println("=== static ===")
 		kept, _ := report.filter(t.dir, static[:])

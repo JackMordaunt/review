@@ -441,8 +441,10 @@ packet_cap :: 16000
 
 // parts is the subjects a job is asked, as changes: the whole change when
 // it fits or cannot be split, else the change cut file by file into runs
-// that each render under the cap. A file that alone renders over the cap
-// is a part by itself.
+// that each render under the cap. A file the job reads nothing from — a
+// test file, for the duplication job — is left out of every run, so no
+// part is ever asked with an empty subject. A file that alone renders
+// over the cap is a part by itself.
 parts :: proc(j: Job, c: ^change.Change, allocator := context.allocator) -> []^change.Change {
 	out := make([dynamic]^change.Change, allocator)
 	if !j.splittable || len(j.subject(c, context.temp_allocator)) <= packet_cap {
@@ -451,13 +453,14 @@ parts :: proc(j: Job, c: ^change.Change, allocator := context.allocator) -> []^c
 	}
 	group := make([dynamic]string, context.temp_allocator)
 	for file in c.files {
-		if !contributes(c, file) {
+		alone := make([]string, 1, context.temp_allocator)
+		alone[0] = file
+		if strings.trim_space(j.subject(part(c, alone, context.temp_allocator), context.temp_allocator)) == "" {
 			continue
 		}
 		if len(group) > 0 {
-			trial := slice.clone(group[:], context.temp_allocator)
 			with := make([dynamic]string, context.temp_allocator)
-			append(&with, ..trial)
+			append(&with, ..group[:])
 			append(&with, file)
 			piece := part(c, with[:], context.temp_allocator)
 			if len(j.subject(piece, context.temp_allocator)) > packet_cap {
@@ -471,26 +474,6 @@ parts :: proc(j: Job, c: ^change.Change, allocator := context.allocator) -> []^c
 		append(&out, part(c, group[:], allocator))
 	}
 	return out[:]
-}
-
-// contributes is whether a file has anything a splittable job reads.
-contributes :: proc(c: ^change.Change, file: string) -> bool {
-	for s in c.symbols {
-		if s.file == file {
-			return true
-		}
-	}
-	for t in c.tests {
-		if t.file == file {
-			return true
-		}
-	}
-	for comment in c.comments {
-		if comment.file == file {
-			return true
-		}
-	}
-	return false
 }
 
 // part is the change narrowed to some of its files: the declarations,

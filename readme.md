@@ -384,7 +384,7 @@ Nothing here cares which model answers. A provider takes a prompt and returns te
 
 | `--provider` | how | credentials |
 |---|---|---|
-| `chain` (default) | probes the configured order — the console API first, then `pi` against the local gateway — and the first that answers serves the whole reading | whichever entry it lands on holds |
+| `chain` (default) | probes the configured order — the console API, then `claude` on the path, then `pi` against the local gateway — and the first that answers serves the whole reading | whichever entry it lands on holds |
 | `claude` | the coding assistant on the path, `-p --output-format json` | whatever it already holds |
 | `api` | the console API directly | `ant auth login` or `ANTHROPIC_API_KEY` |
 | `pi` | `pi -p --mode json`, which speaks to several providers of its own | its own; name the upstream in `REVIEW_PI_PROVIDER` |

@@ -202,9 +202,16 @@ read :: proc(t: ^Task) {
 		fmt.printfln("  %-12s asked in %d parts", t.j.name, len(t.pieces))
 	}
 	for piece, i in t.pieces {
-		found, answer, err := ask(t.r, t.j, t.j.subject(piece, context.temp_allocator))
+		user := t.j.subject(piece, context.temp_allocator)
+		if strings.trim_space(user) == "" {
+			continue // A part with nothing in it is not a question.
+		}
+		found, answer, err := ask(t.r, t.j, user)
 		for &f in found {
 			f.part = i
+		}
+		if err != "" && len(t.pieces) > 1 {
+			err = fmt.tprintf("part %d of %d: %s", i + 1, len(t.pieces), err)
 		}
 		record(t.result, t.lock, t.j.name, found, answer, err)
 	}
