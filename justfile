@@ -15,7 +15,7 @@ default:
 # Debug build: symbols kept, for delve and stack traces.
 build:
     mkdir -p build
-    {{odin}} build review {{flags}} -debug -out:build/review
+    {{odin}} build review {{flags}} -debug -sanitize:address -out:build/review
     {{odin}} build sidecar/odin {{flags}} -debug -out:build/odin-review-extract
     go build -o build/review-go ./sidecar/gofront
     go build -C sidecar/govet -o ../../build/review-vet .
@@ -34,7 +34,7 @@ test:
     set -euo pipefail
     mkdir -p build/test
     for p in {{packages}}; do
-        {{odin}} test $p {{flags}} -out:build/test/$p
+        {{odin}} test $p {{flags}} -sanitize:address -out:build/test/$p
     done
     go vet ./... && go test ./...
 

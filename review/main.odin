@@ -7,9 +7,11 @@
 //	review rules [<rule>]
 package main
 
+import "core:debug/trace"
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "jfm:debug"
 
 import "../analyser"
 import "../bench"
@@ -54,32 +56,54 @@ Flags :: struct {
 }
 
 main :: proc() {
+	// A debug build runs under the collection's debug allocator when
+	// REVIEW_DEBUG_ALLOC is set: it names the site of every overflow,
+	// double free, write after free and size mismatch, and lists the leaks
+	// at exit — which a one-shot program has plenty of, so the report is
+	// asked for rather than printed on every run — and under trace, which
+	// symbolises an assertion failure. The release build is untouched.
+	when ODIN_DEBUG {
+		context.assertion_failure_proc = trace.assertion_failure_proc
+		if os.get_env("REVIEW_DEBUG_ALLOC", context.temp_allocator) != "" {
+			da: debug.Allocator
+			debug.init(&da, context.allocator)
+			context.allocator = debug.allocator(&da)
+			code := dispatch()
+			debug.report(&da)
+			debug.destroy(&da)
+			os.exit(code)
+		}
+	}
+	os.exit(dispatch())
+}
+
+// dispatch is the program: a subcommand, or the review itself, returning
+// the exit code.
+dispatch :: proc() -> int {
 	if len(os.args) > 1 {
 		switch os.args[1] {
 		case "rules":
-			rules(os.args[2:])
-			return
+			return rules(os.args[2:])
 		case "hook":
 			out, err := hook.run(os.args[2:])
 			fmt.print(out)
 			if err != "" {
 				fmt.eprintfln("review: %s", err)
-				os.exit(1)
+				return 1
 			}
-			return
+			return 0
 		case "agent":
 			fmt.print(hook.agent_text)
-			return
+			return 0
 		case "bench":
-			os.exit(run_bench(os.args[2:]))
+			return run_bench(os.args[2:])
 		}
 	}
 	flags, ok := parse(os.args[1:])
 	if !ok {
-		os.exit(2)
+		return 2
 	}
-	code := run(flags)
-	os.exit(code)
+	return run(flags)
 }
 
 // parse reads the flags. A flag that takes a value takes the next argument
@@ -353,34 +377,34 @@ faults :: proc(failures: []string) -> []report.Job_Fault {
 // rules prints the catalogue, or one rule's description, so that an
 // agent given a finding can read what it was judged against without
 // leaving the terminal.
-rules :: proc(args: []string) {
+rules :: proc(args: []string) -> int {
 	if len(args) > 0 && (args[0] == "-dismissed" || args[0] == "--dismissed") {
 		cwd, _ := os.get_working_directory(context.temp_allocator)
 		root, in_repo := git.toplevel(cwd)
 		if !in_repo {
 			fmt.eprintln("review: not in a git repository")
-			os.exit(2)
+			return 2
 		}
 		t, _ := tree.at(root, "")
 		fmt.print(check.dismissals(check.scope_of(nil, t)))
-		return
+		return 0
 	}
 	if len(args) == 0 {
 		fmt.print(check.catalogue())
 		for j in job.all() {
 			fmt.printfln("\n%s", j.criteria)
 		}
-		return
+		return 0
 	}
 	for j in job.all() {
 		if j.name == args[0] {
 			fmt.print(j.criteria)
-			return
+			return 0
 		}
 	}
 	if j, text, found := criterion(args[0]); found {
 		fmt.printfln("%s, from the %s criteria:\n\n%s", args[0], j, text)
-		return
+		return 0
 	}
 	description, ok := check.describe(args[0])
 	if !ok {
@@ -388,9 +412,10 @@ rules :: proc(args: []string) {
 			"review: no job or rule called %q; the jobs are claims, duplication, hygiene, namer, tests",
 			args[0],
 		)
-		os.exit(1)
+		return 1
 	}
 	fmt.printfln("%s, a deterministic check:\n\n%s", args[0], description)
+	return 0
 }
 
 // criterion finds the bullet that defines a rule, in whichever job's
