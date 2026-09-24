@@ -50,6 +50,11 @@ usage: review [flags] [rev]      the staged change, or a revision range
   --model m        Which model, in whatever form the provider names them.
 `
 
+// The debug packages are wired in under ODIN_DEBUG below; the release
+// build still names them, so the import stands in every configuration.
+_ :: debug.Allocator
+_ :: trace.assertion_failure_proc
+
 Flags :: struct {
 	as_json, verbose, show, no_verify, fresh, exit_code:  bool,
 	only, which, model, rev, message_file, baseline_path: string,
