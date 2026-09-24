@@ -61,12 +61,12 @@ Flags :: struct {
 }
 
 main :: proc() {
-	// A debug build runs under the collection's debug allocator when
-	// REVIEW_DEBUG_ALLOC is set: it names the site of every overflow,
-	// double free, write after free and size mismatch, and lists the leaks
-	// at exit — which a one-shot program has plenty of, so the report is
-	// asked for rather than printed on every run — and under trace, which
-	// symbolises an assertion failure. The release build is untouched.
+	// A debug build sets trace's assertion handler, and with
+	// REVIEW_DEBUG_ALLOC set runs under the collection's debug allocator
+	// and prints its report at exit; what the allocator detects is its own
+	// header's to say. The report is asked for rather than printed on every
+	// run, since a one-shot program leaves everything to exit. The release
+	// build is untouched.
 	when ODIN_DEBUG {
 		context.assertion_failure_proc = trace.assertion_failure_proc
 		if os.get_env("REVIEW_DEBUG_ALLOC", context.temp_allocator) != "" {
@@ -88,7 +88,7 @@ dispatch :: proc() -> int {
 	if len(os.args) > 1 {
 		switch os.args[1] {
 		case "rules":
-			return rules(os.args[2:])
+			return print_rules(os.args[2:])
 		case "hook":
 			out, err := hook.run(os.args[2:])
 			fmt.print(out)
@@ -386,10 +386,10 @@ faults :: proc(failures: []string) -> []report.Job_Fault {
 	return out
 }
 
-// rules prints the catalogue, or one rule's description, so that an
+// print_rules prints the catalogue, or one rule's description, so that an
 // agent given a finding can read what it was judged against without
 // leaving the terminal.
-rules :: proc(args: []string) -> int {
+print_rules :: proc(args: []string) -> int {
 	if len(args) > 0 && (args[0] == "-dismissed" || args[0] == "--dismissed") {
 		cwd, _ := os.get_working_directory(context.temp_allocator)
 		root, in_repo := git.toplevel(cwd)

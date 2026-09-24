@@ -23,7 +23,7 @@ odin_check := Analyser {
 		for dir in sorted(dirs) {
 			args := make([dynamic]string, context.temp_allocator)
 			append(&args, "check", dir, "-vet", "-strict-style", "-json-errors", "-no-entry-point")
-			append(&args, ..collections(tree_dir))
+			append(&args, ..collections(tree_dir, root))
 			stdout, stderr, err := execute_both(tree_dir, "odin", args[:], context.temp_allocator)
 			out := strings.concatenate({stdout, stderr}, context.temp_allocator)
 			if err != "" && !strings.contains(out, "error_count") {
@@ -35,10 +35,11 @@ odin_check := Analyser {
 	},
 }
 
-// collections are the -collection flags the repository's ols.json
-// declares, which is where an Odin project names the collections its
-// imports resolve through; a relative path is relative to the repository.
-collections :: proc(tree_dir: string, allocator := context.temp_allocator) -> []string {
+// collections are the -collection flags the ols.json at the end of the
+// change declares, which is where an Odin project names the collections
+// its imports resolve through; a relative path is relative to the
+// repository the change is in.
+collections :: proc(tree_dir, root: string, allocator := context.temp_allocator) -> []string {
 	Config :: struct {
 		collections: []struct {
 			name: string `json:"name"`,
@@ -58,9 +59,11 @@ collections :: proc(tree_dir: string, allocator := context.temp_allocator) -> []
 		if c.name == "" || c.path == "" {
 			continue
 		}
+		// A relative path is relative to the repository, not to the
+		// scratch copy a range is read from, which has no neighbours.
 		path := c.path
 		if !strings.has_prefix(path, "/") {
-			path = join(tree_dir, path, allocator)
+			path = join(root, path, allocator)
 		}
 		append(&flags, strings.concatenate({"-collection:", c.name, "=", path}, allocator))
 	}

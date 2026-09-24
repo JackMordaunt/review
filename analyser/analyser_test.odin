@@ -192,6 +192,31 @@ a_run_past_the_timeout_is_not_waited_for :: proc(t: ^testing.T) {
 }
 
 @(test)
+collections_resolve_against_the_repository :: proc(t: ^testing.T) {
+	temp := os.temp_directory(context.temp_allocator) or_else ""
+	scratch, err := os.make_directory_temp(temp, "review-ols-*", context.temp_allocator)
+	testing.expect(t, err == nil)
+	defer os.remove_all(scratch)
+	testing.expect(
+		t,
+		os.write_entire_file(
+			join(scratch, "ols.json"),
+			transmute([]byte)string(
+				`{"collections":[{"name":"jfm","path":"../odin"},{"name":"abs","path":"/opt/abs"},{"name":""}]}`,
+			),
+		) ==
+		nil,
+	)
+	got := collections(scratch, "/repo", context.temp_allocator)
+	testing.expect_value(
+		t,
+		fmt.tprint(got),
+		`["-collection:jfm=/odin", "-collection:abs=/opt/abs"]`,
+	)
+	testing.expect_value(t, len(collections("/nowhere", "/repo", context.temp_allocator)), 0)
+}
+
+@(test)
 nearest_walks_up :: proc(t: ^testing.T) {
 	temp := os.temp_directory(context.temp_allocator) or_else ""
 	root, err := os.make_directory_temp(temp, "review-analyser-*", context.temp_allocator)

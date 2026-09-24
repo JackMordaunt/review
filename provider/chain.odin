@@ -16,11 +16,11 @@ Entry :: struct {
 	provider: Provider,
 }
 
-// default_chain is the configured preference. The direct API is tried
-// first, because it can enforce the answer's shape and reports usage;
-// then the coding assistant on the path, which holds its own credentials
-// and so answers on a machine with no key set; the local gateway is last,
-// as the reading of last resort. REVIEW_MODEL re-points the first slot.
+// default_chain is the configured preference: the direct API, then the
+// coding assistant on the path, then the local gateway as the reading of
+// last resort. The order is a choice about where an answer is likeliest
+// to be had with the least fuss, not a claim about any of them; a probe
+// decides. REVIEW_MODEL re-points the first slot.
 default_chain :: proc(allocator := context.temp_allocator) -> []Entry {
 	model := os.get_env("REVIEW_MODEL", allocator)
 	if model == "" {
