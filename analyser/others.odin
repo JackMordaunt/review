@@ -346,6 +346,12 @@ semgrep_config :: proc(tree_dir: string) -> string {
 semgrep := Analyser {
 	name = "semgrep",
 	covers = proc(path, shell: string) -> bool {
+		// A workflow is read by actionlint and zizmor, which were built
+		// for it; semgrep's rules for one repeat what they say, and a
+		// reader who is told a thing twice trusts the report less.
+		if is_workflow(path, shell) {
+			return false
+		}
 		for ext in strings.fields(semgrep_languages, context.temp_allocator) {
 			if strings.has_suffix(path, ext) {
 				return true

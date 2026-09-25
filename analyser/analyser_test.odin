@@ -440,4 +440,10 @@ workflows_are_told_from_other_yaml :: proc(t: ^testing.T) {
 	testing.expect(t, !is_workflow("docker-compose.yml", ""))
 	testing.expect(t, !is_workflow(".github/dependabot.yml", ""))
 	testing.expect(t, !is_workflow(".github/workflows/readme.md", ""))
+	// Two readers built for workflows already answer for them, so the
+	// general pattern engine is kept off: one finding said twice reads as
+	// two problems.
+	testing.expect(t, !semgrep.covers(".github/workflows/ci.yml", ""))
+	testing.expect(t, semgrep.covers("deploy/k8s.yaml", ""))
+	testing.expect(t, semgrep.covers("main.go", ""))
 }
