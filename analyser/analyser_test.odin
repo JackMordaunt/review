@@ -362,3 +362,82 @@ shellcheck_covers_a_script_by_its_dialect :: proc(t: ^testing.T) {
 	testing.expect(t, !shellcheck.covers("bin/deploy", ""))
 	testing.expect(t, !shellcheck.covers("main.go", ""))
 }
+
+@(test)
+reads_actionlint :: proc(t: ^testing.T) {
+	al, err := parse_actionlint(
+		"/tree",
+		`[{"message":"shellcheck reported issue in this script: SC2086","filepath":".github/workflows/ci.yml","line":12,"column":9,"kind":"shellcheck","end_column":12},
+{"message":"unexpected key \"branch\"","filepath":".github/workflows/ci.yml","line":3,"column":5,"kind":"syntax-check"}]`,
+		context.temp_allocator,
+	)
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, len(al), 2)
+	if len(al) == 2 {
+		// The shell in a run: block is read the way a script is.
+		testing.expect_value(t, al[0].code, "shellcheck")
+		testing.expect_value(t, al[0].severity, finding.Severity.Consider)
+		testing.expect(t, !al[0].fault)
+		// A workflow that does not parse will not run, wherever it lands.
+		testing.expect_value(t, al[1].code, "syntax-check")
+		testing.expect_value(t, al[1].severity, finding.Severity.Must_Fix)
+		testing.expect(t, al[1].fault)
+	}
+	_, prose := parse_actionlint("/tree", "not json", context.temp_allocator)
+	testing.expect_value(t, prose, "actionlint: its answer is not JSON")
+}
+
+@(test)
+reads_zizmor :: proc(t: ^testing.T) {
+	// A finding carries several locations; only the primary one says
+	// where to look, and its rows are counted from zero.
+	zz, err := parse_zizmor(
+		"/tree",
+		`[{"ident":"template-injection","desc":"code injection via template expansion",
+"determinations":{"confidence":"High","severity":"High","persona":"Regular"},
+"locations":[
+ {"symbolic":{"kind":"Hidden","annotation":"this step","key":{"Local":{"verbatim_path":".github/workflows/ci.yml"}}},"concrete":{"location":{"start_point":{"row":10,"column":6}}}},
+ {"symbolic":{"kind":"Primary","annotation":"may expand into attacker-controllable code","key":{"Local":{"verbatim_path":".github/workflows/ci.yml"}}},"concrete":{"location":{"start_point":{"row":12,"column":10}}}}]},
+{"ident":"excessive-permissions","desc":"overly broad permissions",
+"determinations":{"confidence":"Medium","severity":"Medium","persona":"Regular"},
+"locations":[{"symbolic":{"kind":"Primary","annotation":"default permissions used","key":{"Local":{"verbatim_path":".github/workflows/ci.yml"}}},"concrete":{"location":{"start_point":{"row":4,"column":2}}}}]},
+{"ident":"unredacted-secrets","desc":"a secret is printed",
+"determinations":{"confidence":"Low","severity":"Low","persona":"Auditor"},
+"locations":[{"symbolic":{"kind":"Primary","annotation":"here","key":{"Local":{"verbatim_path":".github/workflows/ci.yml"}}},"concrete":{"location":{"start_point":{"row":0,"column":0}}}}]}]`,
+		context.temp_allocator,
+	)
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, len(zz), 3)
+	if len(zz) == 3 {
+		testing.expect_value(t, zz[0].code, "template-injection")
+		// The primary location, read a line further on than zizmor counts.
+		testing.expect_value(t, zz[0].line, 13)
+		testing.expect_value(t, zz[0].severity, finding.Severity.Must_Fix)
+		// A workflow that hands an attacker the runner still runs, so
+		// none of this is a fault.
+		testing.expect(t, !zz[0].fault)
+		testing.expect_value(
+			t,
+			zz[0].message,
+			"code injection via template expansion: may expand into attacker-controllable code",
+		)
+		testing.expect_value(t, zz[1].line, 5)
+		testing.expect_value(t, zz[1].severity, finding.Severity.Consider)
+		testing.expect_value(t, zz[2].line, 1)
+		testing.expect_value(t, zz[2].severity, finding.Severity.Note)
+	}
+	_, prose := parse_zizmor("/tree", "not json", context.temp_allocator)
+	testing.expect_value(t, prose, "zizmor: its answer is not JSON")
+}
+
+@(test)
+workflows_are_told_from_other_yaml :: proc(t: ^testing.T) {
+	// Every YAML file shares the extension, so the directory the platform
+	// reads is what tells a workflow apart.
+	testing.expect(t, is_workflow(".github/workflows/ci.yml", ""))
+	testing.expect(t, is_workflow(".github/workflows/release.yaml", ""))
+	testing.expect(t, is_workflow("nested/.github/workflows/ci.yml", ""))
+	testing.expect(t, !is_workflow("docker-compose.yml", ""))
+	testing.expect(t, !is_workflow(".github/dependabot.yml", ""))
+	testing.expect(t, !is_workflow(".github/workflows/readme.md", ""))
+}

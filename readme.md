@@ -88,9 +88,13 @@ plainest case of a test that cannot fail came out of the criteria that way.
 | `cargo/<code>` | `cargo clippy --message-format json`, or `cargo check` without clippy, per crate touched, into the repository's own target directory | an error must-fix wherever it lands, a warning consider |
 | `semgrep/<rule>` | `semgrep scan --json` under the repository's `.semgrep.yml`, or `--config p/default` without one, on the changed files it can parse | the rule's own severity: ERROR must-fix, WARNING consider, INFO note |
 | `shellcheck/SC<n>` | `shellcheck -f json1 -x` on the changed shell scripts, under the repository's own `.shellcheckrc` | an error must-fix wherever it lands — a script that does not parse does not run; a warning or an informational note consider, style a note |
+| `actionlint/<kind>` | `actionlint -format '{{json .}}'` on the changed GitHub Actions workflows, shellcheck over each `run:` block included | a workflow that does not parse is must-fix wherever it lands; everything else consider |
+| `zizmor/<audit>` | `zizmor --format json` on the same workflows, in its default persona and offline | the audit's own severity: high must-fix, medium consider, the rest a note. None is a fault: a workflow that hands an attacker the runner still runs |
 
-Each analyser runs only when its binary is on the path and the tree has what it needs, and
-says on stderr why it did not. The rule for what belongs to the change is the same for
+Each analyser runs only when its binary is on the path and the tree has what it needs. A
+skip is always said on stderr, naming the tool that is missing — `skipping zizmor: zizmor
+is not installed` — so a check that is quietly not running can be told from one that
+found nothing. The rule for what belongs to the change is the same for
 all of them: a **fault** — the compiler cannot build the unit — is the change's wherever
 the error lands, because the tree does not compile until it is answered; an **opinion**
 is the change's only on a line the change added. A run that cannot finish inside five
@@ -467,7 +471,8 @@ everything after that is a loop over memory, the same on every system.
 ## What it is not
 
 It does not format, and it writes no analyser of its own where a language already has
-one: the compilers, vet, staticcheck, clippy, ruff, mypy, shellcheck and semgrep are run
-as they are, with their strictest settings, and their word is kept to the change. The code
+one: the compilers, vet, staticcheck, clippy, ruff, mypy, shellcheck, actionlint, zizmor
+and semgrep are run as they are, with their strictest settings, and their word is kept to
+the change. The code
 checks here measure what those tools leave alone — a test that asserts nothing, a body
 written twice, a name nothing refers to — and hand the rest to the readings.

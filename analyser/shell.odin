@@ -19,7 +19,8 @@ import "../finding"
 shellcheck := Analyser {
 	name = "shellcheck",
 	covers = proc(path, shell: string) -> bool {return shell != ""},
-	ready = proc(tree_dir: string) -> (bool, string) {return on_path("shellcheck"), ""},
+	binary = "shellcheck",
+	ready = proc(tree_dir: string) -> (bool, string) {return true, ""},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		args := make([dynamic]string, context.temp_allocator)
 		append(&args, "-f", "json1", "-x")

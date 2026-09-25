@@ -44,7 +44,11 @@ Diagnostic :: struct {
 }
 
 // Analyser is one compiler or analyser, run over the units the change's
-// files belong to. name prefixes its rule ids: name/code. covers is
+// files belong to. name prefixes its rule ids: name/code. binary is the
+// program it runs, looked for before ready is asked so that a tool which
+// is not installed is always said to be the reason rather than the
+// analyser going quiet; an analyser that finds its program more than one
+// way leaves it empty and answers in ready. covers is
 // whether a path is one of its language, given the shell dialect the
 // change settled for it, which is empty for everything that is not a
 // script. ready is whether it can run in
@@ -55,6 +59,7 @@ Diagnostic :: struct {
 // read a range's materialised tree.
 Analyser :: struct {
 	name:     string,
+	binary:   string,
 	covers:   proc(path, shell: string) -> bool,
 	ready:    proc(tree: string) -> (ok: bool, why: string),
 	run:      proc(tree, root: string, files: []string) -> (found: []Diagnostic, err: string),
@@ -64,11 +69,11 @@ Analyser :: struct {
 // all is the compilers and analysers review knows how to run, in the
 // order their findings are worth having.
 all :: proc(allocator := context.temp_allocator) -> []Analyser {
-	list := make([]Analyser, 10, allocator)
+	list := make([]Analyser, 12, allocator)
 	list[0], list[1], list[2] = go_build, go_vet, staticcheck
 	list[3], list[4], list[5] = odin_check, tsc, ruff
 	list[6], list[7], list[8] = mypy, cargo, semgrep
-	list[9] = shellcheck
+	list[9], list[10], list[11] = shellcheck, actionlint, zizmor
 	return list
 }
 
@@ -99,10 +104,16 @@ check :: proc(
 		if len(files) == 0 {
 			continue
 		}
+		if a.binary != "" && !on_path(a.binary) {
+			fmt.eprintfln("skipping %s: %s is not installed", a.name, a.binary)
+			continue
+		}
 		if ok, why := a.ready(t.dir); !ok {
-			if why != "" {
-				fmt.eprintfln("skipping %s: %s", a.name, why)
-			}
+			fmt.eprintfln(
+				"skipping %s: %s",
+				a.name,
+				why if why != "" else "it cannot run in this tree",
+			)
 			continue
 		}
 		if a.in_place && ranged {

@@ -28,7 +28,10 @@ tsc := Analyser {
 	covers = is_typescript_or_javascript,
 	in_place = true,
 	ready = proc(tree_dir: string) -> (bool, string) {
-		return on_path("tsc") || os.is_file(join(tree_dir, "node_modules/.bin/tsc")), ""
+		if on_path("tsc") || os.is_file(join(tree_dir, "node_modules/.bin/tsc")) {
+			return true, ""
+		}
+		return false, "tsc is not installed, and the project has no node_modules/.bin/tsc"
 	},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		binary := join(tree_dir, "node_modules/.bin/tsc")
@@ -107,7 +110,8 @@ is_python :: proc(path, shell: string) -> bool {
 ruff := Analyser {
 	name = "ruff",
 	covers = is_python,
-	ready = proc(tree_dir: string) -> (bool, string) {return on_path("ruff"), ""},
+	binary = "ruff",
+	ready = proc(tree_dir: string) -> (bool, string) {return true, ""},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		args := make([dynamic]string, context.temp_allocator)
 		append(&args, "check", "--output-format", "json", "--exit-zero")
@@ -173,7 +177,8 @@ mypy := Analyser {
 	name = "mypy",
 	covers = is_python,
 	in_place = true,
-	ready = proc(tree_dir: string) -> (bool, string) {return on_path("mypy"), ""},
+	binary = "mypy",
+	ready = proc(tree_dir: string) -> (bool, string) {return true, ""},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		args := make([dynamic]string, context.temp_allocator)
 		append(&args, "--output", "json", "--no-error-summary", "--ignore-missing-imports")
@@ -227,7 +232,8 @@ parse_mypy :: proc(tree_dir, out: string, allocator := context.allocator) -> []D
 cargo := Analyser {
 	name = "cargo",
 	covers = proc(path, shell: string) -> bool {return strings.has_suffix(path, ".rs")},
-	ready = proc(tree_dir: string) -> (bool, string) {return on_path("cargo"), ""},
+	binary = "cargo",
+	ready = proc(tree_dir: string) -> (bool, string) {return true, ""},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		crates := make(map[string]bool, context.temp_allocator)
 		for f in files {
@@ -347,7 +353,8 @@ semgrep := Analyser {
 		}
 		return false
 	},
-	ready = proc(tree_dir: string) -> (bool, string) {return on_path("semgrep"), ""},
+	binary = "semgrep",
+	ready = proc(tree_dir: string) -> (bool, string) {return true, ""},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		args := make([dynamic]string, context.temp_allocator)
 		append(
