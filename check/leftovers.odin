@@ -123,9 +123,51 @@ code_like :: proc(text: string) -> (strong, weak: bool) {
 	return matches(strong_code, trimmed), matches(weak_code, trimmed)
 }
 
+// example_marks open a block that is meant to be read as code: a fenced
+// block in the markdown shapes, a doctest prompt, a shell transcript.
+example_fence  :: "```"
+example_prompt :: `^(>>>|\$ |# \$)`
+
+// is_example marks the lines of a comment run that read as a written
+// example rather than as code left behind. The margin is the test: a run
+// holding prose lends its own smallest margin, and a line standing
+// further in than that is taken as shown rather than abandoned. A fence
+// or a prompt marks one outright. Where a run holds no prose there is no
+// margin to lend, and nothing in it is an example.
+is_example :: proc(run: []change.Located, allocator := context.temp_allocator) -> []bool {
+	out := make([]bool, len(run), allocator)
+	margin, prose := max(int), false
+	for c in run {
+		if strings.trim_space(c.text) == "" {
+			continue
+		}
+		if st, wk := code_like(c.text); st || wk {
+			continue
+		}
+		prose = true
+		margin = min(margin, c.indent)
+	}
+	fenced := false
+	for c, i in run {
+		trimmed := strings.trim_space(c.text)
+		if strings.has_prefix(trimmed, example_fence) {
+			fenced = !fenced
+			out[i] = true
+			continue
+		}
+		out[i] =
+			fenced ||
+			matches(example_prompt, trimmed) ||
+			(prose && c.indent > margin)
+	}
+	return out
+}
+
 // check_commented_code reports code the change keeps as comments. A run
 // of consecutive comment lines is one candidate; it is reported when two
 // of its lines are shaped like statements, or one is code beyond doubt.
+// A line the run shows as an example counts for neither: a doc comment
+// that demonstrates its own call is the opposite of code nobody wants.
 check_commented_code :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 	by_file := make(map[string][dynamic]change.Located, context.temp_allocator)
 	for comment in s.c.comments {
@@ -144,16 +186,23 @@ check_commented_code :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 		i := 0
 		for i < len(comments) {
 			j := i
-			strong, weak := 0, 0
 			for j < len(comments) && (j == i || comments[j].line == comments[j - 1].line + 1) {
-				st, wk := code_like(comments[j].text)
+				j += 1
+			}
+			run := comments[i:j]
+			shown := is_example(run)
+			strong, weak := 0, 0
+			for c, k in run {
+				if shown[k] {
+					continue
+				}
+				st, wk := code_like(c.text)
 				if st {
 					strong += 1
 				}
 				if wk || st {
 					weak += 1
 				}
-				j += 1
 			}
 			if strong > 0 || weak >= 2 {
 				append(

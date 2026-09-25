@@ -46,10 +46,30 @@ type Decl struct {
 }
 
 // Comment is one comment, located by its first line, with the marker
-// stripped and the text trimmed.
+// stripped and the text trimmed. Indent is how far the text sat from the
+// marker, in columns, which is what sets a documented example apart from
+// code left behind as a comment.
 type Comment struct {
-	Line int    `json:"line"`
-	Text string `json:"text"`
+	Line   int    `json:"line"`
+	Text   string `json:"text"`
+	Indent int    `json:"indent"`
+}
+
+// indentOf is the width of the leading whitespace, a tab standing for
+// four columns.
+func indentOf(text string) int {
+	columns := 0
+	for _, r := range text {
+		switch r {
+		case '\t':
+			columns += 4
+		case ' ':
+			columns++
+		default:
+			return columns
+		}
+	}
+	return columns
 }
 
 // File is what one Go file declares.
@@ -141,9 +161,11 @@ func readFile(name string, source []byte) File {
 
 	for _, group := range file.Comments {
 		for _, comment := range group.List {
+			body := strings.TrimPrefix(comment.Text, "//")
 			result.Comments = append(result.Comments, Comment{
-				Line: line(comment.Pos()),
-				Text: strings.TrimSpace(strings.TrimPrefix(comment.Text, "//")),
+				Line:   line(comment.Pos()),
+				Indent: indentOf(body),
+				Text:   strings.TrimSpace(body),
 			})
 		}
 	}

@@ -617,6 +617,47 @@ leftovers_are_reported :: proc(t: ^testing.T) {
 		testing.expect_value(t, code[0].line, 1)
 		testing.expect_value(t, code[1].line, 10)
 	}
+	// A doc comment showing how its own declaration is called is the
+	// opposite of code nobody wants. The cases below are the shapes this
+	// reads: indented under the prose, fenced, or behind a prompt.
+	examples := change.Change {
+		comments = dyn(
+			[]change.Located {
+				// Indented under the prose that introduces it.
+				{text = "open opens the store. A typical use:", file = "a.odin", line = 1, indent = 1},
+				{text = "", file = "a.odin", line = 2, indent = 0},
+				{text = "db, err := open(path)", file = "a.odin", line = 3, indent = 4},
+				{text = "defer close(db)", file = "a.odin", line = 4, indent = 4},
+				// Fenced, at the prose's own margin.
+				{text = "parse reads a record.", file = "b.py", line = 1, indent = 1},
+				{text = "```", file = "b.py", line = 2, indent = 1},
+				{text = "parse(text);", file = "b.py", line = 3, indent = 1},
+				{text = "out := parse(text);", file = "b.py", line = 4, indent = 1},
+				{text = "```", file = "b.py", line = 5, indent = 1},
+				// A doctest prompt is a transcript, not an orphan.
+				{text = "Doctest form:", file = "c.py", line = 1, indent = 1},
+				{text = ">>> parse(text);", file = "c.py", line = 2, indent = 1},
+				{text = ">>> out := parse(text);", file = "c.py", line = 3, indent = 1},
+				// No prose to lend a margin: this is only code.
+				{text = "old := parse(line);", file = "d.odin", line = 1, indent = 1},
+				{text = "emit(old);", file = "d.odin", line = 2, indent = 1},
+				// Prose at the code's own margin does not excuse it.
+				{text = "the old way, kept just in case:", file = "e.odin", line = 1, indent = 1},
+				{text = "result := compute(a, b);", file = "e.odin", line = 2, indent = 1},
+				{text = "emit(result);", file = "e.odin", line = 3, indent = 1},
+			},
+		),
+	}
+	shown := collect(Scope{c = &examples}, check_commented_code, context.temp_allocator)
+	files := make(map[string]bool, context.temp_allocator)
+	for f in shown {
+		files[f.file] = true
+	}
+	testing.expectf(t, !files["a.odin"], "an indented example was read as leftover code: %v", shown)
+	testing.expectf(t, !files["b.py"], "a fenced example was read as leftover code: %v", shown)
+	testing.expectf(t, !files["c.py"], "a doctest was read as leftover code: %v", shown)
+	testing.expect(t, files["d.odin"], "a run that is only code went unreported")
+	testing.expect(t, files["e.odin"], "prose at the code's own margin excused it")
 	Swallowed :: struct {
 		file:  string,
 		lines: []string,

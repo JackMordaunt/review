@@ -132,7 +132,7 @@ rules := []Rule {
 	},
 	{
 		"commented-out-code",
-		"an added comment run holds code: two statement-shaped lines, or one beyond doubt",
+		"an added comment run holds code: two statement-shaped lines, or one beyond doubt, an example the comment sets off by indenting or fencing aside",
 	},
 	{
 		"debug-leftover",

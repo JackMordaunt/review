@@ -406,3 +406,38 @@ settles_the_shell_dialect :: proc(t: ^testing.T) {
 	testing.expect(t, heuristic_covers("bin/deploy", "bash"))
 	testing.expect(t, !heuristic_covers("bin/deploy", ""))
 }
+
+@(test)
+keeps_the_indent_a_comment_marker_hides :: proc(t: ^testing.T) {
+	// The margin is what tells a shown example from code left behind, and
+	// it is only visible before the marker is stripped.
+	src := "package p\n// open opens it. A use:\n//\n//\tdb := open(path)\n//   spaced := 1\n#\tshell := 1\n/*\n *     starred := 1\n */\n"
+	touched := make([dynamic]Diff_Line, context.temp_allocator)
+	for line in ([]int{1, 2, 3, 4, 5, 6, 7, 8, 9}) {
+		append(&touched, Diff_Line{line, ""})
+	}
+	got := comment_prose(transmute([]byte)src, "a.odin", touched, context.temp_allocator)
+	by := make(map[int]Located, context.temp_allocator)
+	for c in got {
+		by[c.line] = c
+	}
+	testing.expect_value(t, by[2].indent, 1)
+	testing.expect_value(t, by[4].indent, 4)
+	testing.expect_value(t, by[4].text, "db := open(path)")
+	testing.expect_value(t, by[5].indent, 3)
+	testing.expect_value(t, by[6].indent, 4)
+	// A starred block comment's margin counts the star: one space, the
+	// star, then five, so the text stands seven columns in.
+	testing.expect_value(t, by[8].indent, 7)
+	testing.expect_value(t, by[8].text, "starred := 1")
+	// What matters is only that an example stands further in than the
+	// prose it is shown under, in either comment habit.
+	testing.expect(t, by[4].indent > by[2].indent)
+	testing.expect_value(t, block_indent("\tcode"), 4)
+	testing.expect_value(t, block_indent("prose"), 0)
+	testing.expect_value(t, block_indent(" * prose"), 3)
+	// A tab stands for four columns so the two habits compare.
+	testing.expect_value(t, indent_of("\tx"), 4)
+	testing.expect_value(t, indent_of("  x"), 2)
+	testing.expect_value(t, indent_of("x"), 0)
+}

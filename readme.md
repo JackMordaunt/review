@@ -130,7 +130,7 @@ noise on any struct not on a hot path.
 | `nesting-too-deep` | each new function's block depth | does it nest more than 5 deep? 99% of measured functions stay within 6 |
 | `comment-restates-code` | each added comment's words against the line below it | does the comment say only what the code says? |
 | `todo-without-reference` | each added TODO, FIXME, XXX or HACK | does it name an issue, a ticket, a link or a person? |
-| `commented-out-code` | runs of added comment lines | is this code kept as a comment — two statement-shaped lines, or one beyond doubt? |
+| `commented-out-code` | runs of added comment lines, an example the comment indents or fences aside | is this code kept as a comment — two statement-shaped lines, or one beyond doubt? |
 | `debug-leftover` | added lines against the debugging shapes of each language | is this a `debugger`, a `breakpoint()`, a `dbg!`, a `spew.Dump`, a `console.log`, a `set -x`, a `DEBUG` print? |
 | `error-swallowed` | added lines against the dropping shapes of each language | is this `_ = err`, an empty `catch`, an `except` that passes? |
 | `new-symbol-unreferenced` | each new declaration's name as a whole word over every text file in the tree | does anything refer to it but its own line? A doc comment does not count |

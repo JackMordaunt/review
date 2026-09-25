@@ -30,9 +30,11 @@ Decl :: struct {
 }
 
 // Comment is one comment, located by its first line, marker stripped.
+// indent is how far its text sat from the marker, in columns.
 Comment :: struct {
-	line: int,
-	text: string,
+	line:   int,
+	text:   string,
+	indent: int,
 }
 
 // File is what one source file declares. An error is a file the sidecar

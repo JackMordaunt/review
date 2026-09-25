@@ -45,10 +45,14 @@ Function :: struct {
 // couple of lines of it, so that a claim about behaviour can be read
 // beside the behaviour.
 Located :: struct {
-	text:  string,
-	file:  string,
-	line:  int,
-	below: string,
+	text:   string,
+	file:   string,
+	line:   int,
+	below:  string,
+	// indent is how far the text sits from the comment marker, in
+	// columns. It is what tells an example, which a doc comment sets off
+	// by indenting it, from code left behind as a comment.
+	indent: int,
 }
 
 // Temporal is what the repository's history counts about the files the
@@ -640,6 +644,36 @@ heuristic_covers :: proc(path: string, shell := "") -> bool {
 	return false
 }
 
+// indent_of is how far a comment's text sits from its marker, in
+// columns, with a tab standing for four. The marker's own separating
+// space counts, so prose written "// like this" sits at one and an
+// example indented under it sits further.
+indent_of :: proc(text: string) -> (columns: int) {
+	for c in text {
+		switch c {
+		case '\t':
+			columns += 4
+		case ' ':
+			columns += 1
+		case:
+			return columns
+		}
+	}
+	return columns
+}
+
+// block_indent is how far a block comment's text sits from the left, in
+// columns. A star leading the line is counted as part of the margin
+// rather than as text, so that a comment written with one down its side
+// and a comment written without compare the same way.
+block_indent :: proc(line: string) -> int {
+	rest := strings.trim_left_space(line)
+	if strings.has_prefix(rest, "*") && !strings.has_prefix(rest, "*/") {
+		return indent_of(line) + 1 + indent_of(rest[1:])
+	}
+	return indent_of(line)
+}
+
 // comment_prose lifts the comment lines among the added ones out of a
 // source file by the prefixes the C-family shares: // and # for line
 // comments, an open /* kept whole until its close. The shebang is not a
@@ -667,14 +701,26 @@ comment_prose :: proc(
 		switch {
 		case in_block:
 			if is_touched[number] {
+				// The margin is measured on the line as written: a block
+				// comment has no marker of its own down the side to
+				// measure from, and trimming has already taken it.
+				depth := block_indent(line)
 				t := strings.trim_suffix(trimmed, "*/")
-				t = strings.trim_space(strings.trim_prefix(t, "*"))
-				if t != "" {
-					append(
-						&out,
-						Located{text = strings.clone(t, allocator), file = name, line = number},
-					)
-				}
+				t = strings.trim_prefix(t, "*")
+				t = strings.trim_space(t)
+				// A blank line inside the comment is kept, as the line
+				// comments' reader keeps one: it is what separates a
+				// paragraph from the example under it, and dropping it
+				// leaves the example looking like an orphan.
+				append(
+					&out,
+					Located {
+						text = strings.clone(t, allocator),
+						file = name,
+						line = number,
+						indent = depth,
+					},
+				)
 			}
 			if strings.contains(trimmed, "*/") {
 				in_block = false
@@ -687,37 +733,40 @@ comment_prose :: proc(
 				in_block = true
 			}
 			if is_touched[number] && strings.trim_space(t) != "" {
-				text := strings.trim_space(strings.trim_prefix(strings.trim_space(t), "*"))
+				body := strings.trim_prefix(strings.trim_space(t), "*")
 				append(
 					&out,
-					Located{text = strings.clone(text, allocator), file = name, line = number},
+					Located {
+						text = strings.clone(strings.trim_space(body), allocator),
+						file = name,
+						line = number,
+						indent = indent_of(body),
+					},
 				)
 			}
 		case strings.has_prefix(trimmed, "//"):
 			if is_touched[number] {
+				body := strings.trim_prefix(trimmed, "//")
 				append(
 					&out,
 					Located {
-						text = strings.clone(
-							strings.trim_space(strings.trim_prefix(trimmed, "//")),
-							allocator,
-						),
+						text = strings.clone(strings.trim_space(body), allocator),
 						file = name,
 						line = number,
+						indent = indent_of(body),
 					},
 				)
 			}
 		case strings.has_prefix(trimmed, "#") && !strings.has_prefix(trimmed, "#!"):
 			if is_touched[number] {
+				body := strings.trim_prefix(trimmed, "#")
 				append(
 					&out,
 					Located {
-						text = strings.clone(
-							strings.trim_space(strings.trim_prefix(trimmed, "#")),
-							allocator,
-						),
+						text = strings.clone(strings.trim_space(body), allocator),
 						file = name,
 						line = number,
+						indent = indent_of(body),
 					},
 				)
 			}
@@ -785,7 +834,12 @@ read_file :: proc(c: ^Change, t: tree.Tree, name: string, file: frontend.File) {
 			if touched[comment.line] {
 				append(
 					&c.comments,
-					Located{text = strings.clone(comment.text), file = name, line = comment.line},
+					Located {
+						text = strings.clone(comment.text),
+						file = name,
+						line = comment.line,
+						indent = comment.indent,
+					},
 				)
 			}
 		}

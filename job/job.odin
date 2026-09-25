@@ -309,6 +309,12 @@ claims_subject :: proc(c: ^change.Change, allocator: runtime.Allocator) -> strin
 	)
 	for block in blocks {
 		for comment in block {
+			// A blank line inside a comment holds the block together for
+			// the reader that judges an example; it says nothing to a
+			// reader judging claims.
+			if strings.trim_space(comment.text) == "" {
+				continue
+			}
 			fmt.sbprintf(&b, "%s:%d  %s\n", comment.file, comment.line, comment.text)
 		}
 		if below := block[len(block) - 1].below; below != "" {
