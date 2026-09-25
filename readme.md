@@ -31,8 +31,10 @@ review agent                    what an agent's instructions should say about th
 
 The tool is written in Odin, on the `jm` collection (`~/Source/Personal/jm`), and
 reads each language through a sidecar built on that language's own parser. `just build`
-compiles the four binaries into `build/`; `just install` puts them beside each other on
-the path: `review`, `review-go` (Go's parser, from `sidecar/gofront`), `review-vet` (go
+compiles the four binaries into `build/`; `just install` puts them beside each other in
+`~/.local/bin`, or the next writable directory on the path, and clears any copy left in
+a Go path by the version of this tool that was written in Go: `review`, `review-go`
+(Go's parser, from `sidecar/gofront`), `review-vet` (go
 vet's multichecker, from `sidecar/govet`) and `odin-review-extract` (Odin's parser, from
 `sidecar/odin`). `just test` type-checks and runs every package's tests and the Go
 sidecar's. The repository's own `ols.json` names the collection for the editor and for

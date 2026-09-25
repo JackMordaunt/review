@@ -43,26 +43,46 @@ clean:
     rm -rf build
     go clean
 
-# Copy the release binaries to a directory on PATH. An installed review is
-# replaced in place; otherwise ~/.local/bin, ~/bin, GOBIN, GOPATH/bin,
-# /usr/local/bin, else the first writable PATH entry.
+# Copy the release binaries to a directory on PATH: ~/.local/bin, ~/bin,
+# /usr/local/bin, else where review already is, else the first writable
+# PATH entry. A Go path is never chosen and a copy left in one is removed:
+# `go install` put this tool there when it was written in Go, and two
+# copies on one PATH is how a stale one gets run.
 install: release
     #!/usr/bin/env bash
     set -euo pipefail
-    dest=""
-    if existing=$(command -v review 2>/dev/null) && [[ -w ${existing%/*} ]]; then
-        dest=${existing%/*}
-    fi
     gopath=$(go env GOPATH 2>/dev/null || true); gobin=$(go env GOBIN 2>/dev/null || true)
-    for d in "$HOME/.local/bin" "$HOME/bin" "$gobin" "${gopath:+$gopath/bin}" /usr/local/bin; do
-        [[ -z $dest && -n $d && -d $d && -w $d && ":$PATH:" == *":$d:"* ]] && dest=$d
+    go_paths=()
+    [[ -n $gobin ]] && go_paths+=("$gobin")
+    [[ -n $gopath ]] && go_paths+=("$gopath/bin")
+    is_go_path() {
+        local d
+        for d in ${go_paths+"${go_paths[@]}"}; do [[ $1 == "$d" ]] && return 0; done
+        return 1
+    }
+    dest=""
+    for d in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
+        [[ -z $dest && -d $d && -w $d && ":$PATH:" == *":$d:"* ]] && dest=$d
     done
+    if [[ -z $dest ]] && existing=$(command -v review 2>/dev/null); then
+        [[ -w ${existing%/*} ]] && ! is_go_path "${existing%/*}" && dest=${existing%/*}
+    fi
     if [[ -z $dest ]]; then
         IFS=: read -ra dirs <<<"$PATH"
-        for d in "${dirs[@]}"; do [[ -d $d && -w $d ]] && { dest=$d; break; }; done
+        for d in "${dirs[@]}"; do
+            [[ -d $d && -w $d ]] && ! is_go_path "$d" && { dest=$d; break; }
+        done
     fi
     [[ -n $dest ]] || { echo "install: no writable directory on PATH" >&2; exit 1; }
-    for bin in review review-go review-vet odin-review-extract; do
+    binaries=(review review-go review-vet odin-review-extract)
+    for bin in "${binaries[@]}"; do
         install -m 755 build/$bin "$dest/$bin"
     done
-    echo "installed review, review-go, review-vet and odin-review-extract into $dest"
+    echo "installed ${binaries[*]} into $dest"
+    for d in ${go_paths+"${go_paths[@]}"}; do
+        [[ $d == "$dest" ]] && continue
+        for bin in "${binaries[@]}"; do
+            [[ -f $d/$bin ]] && rm -f "$d/$bin" && echo "removed the older $d/$bin"
+        done
+    done
+    true
