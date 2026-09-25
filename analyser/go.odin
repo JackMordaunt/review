@@ -12,9 +12,9 @@ is_go :: proc(path, shell: string) -> bool {
 	return strings.has_suffix(path, ".go")
 }
 
-// go_ready is whether a Go tool can run: the binary, and a module at the
+// is_go_ready is whether a Go tool can run: a module at the
 // tree's root.
-go_ready :: proc(tree_dir: string) -> (bool, string) {
+is_go_ready :: proc(tree_dir: string) -> (bool, string) {
 	if !os.is_file(join(tree_dir, "go.mod")) {
 		return false, "no go.mod at the repository root"
 	}
@@ -68,7 +68,7 @@ go_build := Analyser {
 	name = "go-build",
 	covers = is_go,
 	binary = "go",
-	ready = proc(tree_dir: string) -> (bool, string) {return go_ready(tree_dir)},
+	ready = proc(tree_dir: string) -> (bool, string) {return is_go_ready(tree_dir)},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		pkgs := go_packages(tree_dir, files)
 		if len(pkgs) == 0 {
@@ -159,7 +159,7 @@ go_vet := Analyser {
 	name = "go-vet",
 	covers = is_go,
 	binary = "go",
-	ready = proc(tree_dir: string) -> (bool, string) {return go_ready(tree_dir)},
+	ready = proc(tree_dir: string) -> (bool, string) {return is_go_ready(tree_dir)},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		pkgs := go_packages(tree_dir, files)
 		if len(pkgs) == 0 {
@@ -271,7 +271,7 @@ staticcheck := Analyser {
 	name = "staticcheck",
 	covers = is_go,
 	binary = "staticcheck",
-	ready = proc(tree_dir: string) -> (bool, string) {return go_ready(tree_dir)},
+	ready = proc(tree_dir: string) -> (bool, string) {return is_go_ready(tree_dir)},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
 		pkgs := go_packages(tree_dir, files)
 		if len(pkgs) == 0 {

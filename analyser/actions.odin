@@ -104,7 +104,9 @@ zizmor := Analyser {
 // Zizmor_Finding is one entry of zizmor's JSON array. A finding carries
 // several locations — the step it sits in, the line it is about, the
 // lines it relates to — and only the primary one is where the reader
-// should look. Rows are counted from zero.
+// should look. Its rows were read from the output of zizmor 1.30.0 and
+// counted from zero; reads_zizmor holds a capture of that output, which
+// is where a later version would show itself.
 Zizmor_Finding :: struct {
 	ident:          string `json:"ident"`,
 	desc:           string `json:"desc"`,
