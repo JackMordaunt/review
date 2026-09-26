@@ -8,6 +8,9 @@
 odin := env("ODIN", "odin")
 jm := env("JM", home_directory() / "Source" / "Personal" / "jm")
 flags := "-vet -strict-style -collection:jm=" + jm
+# Windows refuses to run an output without its extension, and Odin will not
+# write one.
+exe := if os() == "windows" { ".exe" } else { "" }
 packages := "txt frontend git tree change finding report check analyser job provider cache reviewer hook bench"
 
 # `just` alone lists the recipes.
@@ -17,18 +20,18 @@ default:
 # Debug build: symbols kept, for delve and stack traces.
 build:
     mkdir -p build
-    {{odin}} build review {{flags}} -debug -sanitize:address -out:build/review
-    {{odin}} build sidecar/odin {{flags}} -debug -out:build/odin-review-extract
-    go build -o build/review-go ./sidecar/gofront
-    go build -C sidecar/govet -o ../../build/review-vet .
+    {{odin}} build review {{flags}} -debug -sanitize:address -out:build/review{{exe}}
+    {{odin}} build sidecar/odin {{flags}} -debug -out:build/odin-review-extract{{exe}}
+    go build -o build/review-go{{exe}} ./sidecar/gofront
+    go build -C sidecar/govet -o ../../build/review-vet{{exe}} .
 
 # Optimised build: stripped, reproducible paths.
 release:
     mkdir -p build
-    {{odin}} build review {{flags}} -o:speed -out:build/review
-    {{odin}} build sidecar/odin {{flags}} -o:speed -out:build/odin-review-extract
-    go build -trimpath -ldflags='-s -w' -o build/review-go ./sidecar/gofront
-    go build -C sidecar/govet -trimpath -ldflags='-s -w' -o ../../build/review-vet .
+    {{odin}} build review {{flags}} -o:speed -out:build/review{{exe}}
+    {{odin}} build sidecar/odin {{flags}} -o:speed -out:build/odin-review-extract{{exe}}
+    go build -trimpath -ldflags='-s -w' -o build/review-go{{exe}} ./sidecar/gofront
+    go build -C sidecar/govet -trimpath -ldflags='-s -w' -o ../../build/review-vet{{exe}} .
 
 # Type-check, then run every package's tests and the Go sidecar's.
 test:
@@ -36,7 +39,7 @@ test:
     set -euo pipefail
     mkdir -p build/test
     for p in {{packages}}; do
-        {{odin}} test $p {{flags}} -sanitize:address -out:build/test/$p
+        {{odin}} test $p {{flags}} -sanitize:address -out:build/test/$p{{exe}}
     done
     go vet ./... && go test ./...
 
@@ -78,13 +81,13 @@ install: release
     [[ -n $dest ]] || { echo "install: no writable directory on PATH" >&2; exit 1; }
     binaries=(review review-go review-vet odin-review-extract)
     for bin in "${binaries[@]}"; do
-        install -m 755 build/$bin "$dest/$bin"
+        install -m 755 build/$bin{{exe}} "$dest/$bin{{exe}}"
     done
     echo "installed ${binaries[*]} into $dest"
     for d in ${go_paths+"${go_paths[@]}"}; do
         [[ $d == "$dest" ]] && continue
         for bin in "${binaries[@]}"; do
-            [[ -f $d/$bin ]] && rm -f "$d/$bin" && echo "removed the older $d/$bin"
+            [[ -f $d/$bin{{exe}} ]] && rm -f "$d/$bin{{exe}}" && echo "removed the older $d/$bin{{exe}}"
         done
     done
     true
