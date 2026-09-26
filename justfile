@@ -2,10 +2,12 @@
 # review is the Odin binary; review-go and review-vet are the Go sidecars
 # (the Go parser, and go vet's multichecker) and odin-review-extract the
 # Odin one. install ships all four beside each other on PATH. The Odin
-# packages need the jm collection at ~/Source/Personal/jm.
+# packages need the jm collection, at ~/Source/Personal/jm unless JM says
+# otherwise.
 
 odin := env("ODIN", "odin")
-flags := "-vet -strict-style -collection:jm=" + home_directory() / "Source" / "Personal" / "jm"
+jm := env("JM", home_directory() / "Source" / "Personal" / "jm")
+flags := "-vet -strict-style -collection:jm=" + jm
 packages := "txt frontend git tree change finding report check analyser job provider cache reviewer hook bench"
 
 # `just` alone lists the recipes.
