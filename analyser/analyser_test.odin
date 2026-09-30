@@ -220,11 +220,12 @@ collections_resolve_against_the_repository :: proc(t: ^testing.T) {
 		nil,
 	)
 	got := collections(scratch, FAKE_REPO, context.temp_allocator)
-	testing.expect_value(
-		t,
-		fmt.tprint(got),
-		fmt.tprintf(`["-collection:jm=%s", "-collection:abs=/opt/abs"]`, RESOLVED_JM),
-	)
+	// Element by element: printing the slice escapes a Windows backslash.
+	testing.expect_value(t, len(got), 2)
+	if len(got) == 2 {
+		testing.expect_value(t, got[0], "-collection:jm=" + RESOLVED_JM)
+		testing.expect_value(t, got[1], "-collection:abs=/opt/abs")
+	}
 	testing.expect_value(t, len(collections("/nowhere", "/repo", context.temp_allocator)), 0)
 }
 
