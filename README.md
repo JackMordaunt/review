@@ -61,7 +61,7 @@ reporting what another job owns.
 An agent's loop is review, fix, review again. Everything here exists to make
 that loop end.
 
-- **Comparisons before judgement.** Twenty-seven checks of its own, and the repository's own compilers and linters, run before any model is asked, and still run when none can be.
+- **Comparisons before judgement.** Twenty-eight checks of its own, and the repository's own compilers and linters, run before any model is asked, and still run when none can be.
 - **Every finding cites a rule.** A finding that cites none is dropped before you see it. `review rules <rule>` prints what it was judged against.
 - **A second reading.** Each finding is read again with its evidence. One that falls is reported as retracted, with the reason, never silently dropped.
 - **The same answer twice.** Answers are cached by the exact question asked, so an unchanged change replays and costs nothing. Ids hash what a finding is about, not where it sits, so they survive edits.

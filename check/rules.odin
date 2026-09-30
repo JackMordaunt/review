@@ -143,6 +143,10 @@ rules := []Rule {
 		"an added line drops an error: _ = err, an empty catch, an except that passes",
 	},
 	{
+		"odin-destroy-incomplete",
+		"an Odin struct's destroy, free or deinit procedure never hands an owning field — a string, slice, map, dynamic array, pointer or struct with its own destroy — to any call, where the change adds the field or touches the procedure; an arena freed whole spares the struct",
+	},
+	{
 		"new-symbol-unreferenced",
 		"nothing in the repository refers to a new declaration but its own line",
 	},
