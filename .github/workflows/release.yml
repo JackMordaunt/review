@@ -19,11 +19,13 @@ permissions: {}
 
 # CI builds the Odin compiler review is developed with, not a release: the
 # commit is tagged in the fork (setup-odin clones a branch or tag, never a
-# bare commit), and LLVM matches the local build's major version. Moving to
-# a newer Odin is: tag the new commit in the fork, and change ODIN_PIN.
+# bare commit), and LLVM matches the local build's major version. The pin is
+# 984eb69e0 with one fix on top: without it, a Windows test that calls
+# fail_now brings the whole test binary down, or hangs it. Moving to a newer
+# Odin is: tag the new commit in the fork, and change ODIN_PIN.
 env:
   ODIN_REPO: https://github.com/JackMordaunt/Odin
-  ODIN_PIN: brainfold-pin-984eb69e0
+  ODIN_PIN: review-pin-fc62e7c77
   ODIN_LLVM: "22"
 
 jobs:
@@ -39,16 +41,22 @@ jobs:
             platform: linux-amd64
             goos: linux
             goarch: amd64
+            astgrep: x86_64-unknown-linux-gnu
+            astgrep_sha256: f8ac830881339d1edee6b2652f54798c0f4da5a827f2db38a08ee31117783ce8
           - os: ubuntu-24.04-arm
             target: linux_arm64
             platform: linux-arm64
             goos: linux
             goarch: arm64
+            astgrep: aarch64-unknown-linux-gnu
+            astgrep_sha256: b39cfbc58da4b869a88b8a4bc57bd5deb0d24541e704cf7c257da7b53ec81c8f
           - os: macos-latest
             target: darwin_arm64
             platform: darwin-arm64
             goos: darwin
             goarch: arm64
+            astgrep: aarch64-apple-darwin
+            astgrep_sha256: 6d2279dea5bea2ad79c66ea93f5fe54ba926e398a8a26de76c56db68fe59eac6
           # Intel macOS is cross-compiled on the arm64 runner: the SQLite
           # archive is built with -arch x86_64 and Odin links for the target.
           - os: macos-latest
@@ -63,6 +71,8 @@ jobs:
             goos: windows
             goarch: amd64
             ext: .exe
+            astgrep: x86_64-pc-windows-msvc
+            astgrep_sha256: 3751b7d6be7fd39a80df1180ffe7e053903dcf92d3190e5a8336ff1746af9059
     runs-on: ${{ matrix.os }}
     steps:
       # jm is a submodule, pinned to the commit local builds use.
@@ -150,18 +160,39 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then
             ldd dist/review-$suffix
           fi
+      # The frontend tests read TypeScript, Python, Rust and shell through
+      # ast-grep, so the runner gets the release binary, pinned by hash.
+      - name: ast-grep
+        if: matrix.astgrep
+        shell: bash
+        env:
+          ASTGREP: ${{ matrix.astgrep }}
+          ASTGREP_SHA256: ${{ matrix.astgrep_sha256 }}
+        run: |
+          dir="$RUNNER_TEMP/ast-grep"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/app.zip" "https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-$ASTGREP.zip"
+          echo "$ASTGREP_SHA256  $dir/app.zip" | sha256sum -c -
+          unzip -q -o "$dir/app.zip" -d "$dir"
+          echo "$dir" >> "$GITHUB_PATH"
       # The packages' tests and the installer tests, as `just test` runs them
-      # locally, on every runner that can run what it builds. The publish job
-      # needs every build, so a tag whose tests fail never ships. Windows runs
-      # them without the address sanitizer, whose HeapSize hook aborts on
-      # memory Windows allocated itself.
+      # locally, on every runner that can run what it builds, with the
+      # sidecars the frontend tests call on PATH. The publish job needs every
+      # build, so a tag whose tests fail never ships. Windows runs them
+      # without the address sanitizer, whose HeapSize hook aborts on memory
+      # Windows allocated itself. A test that hangs fails the build rather
+      # than holding a runner for hours.
       - name: test
         if: matrix.target != 'darwin_amd64'
+        timeout-minutes: 20
         shell: bash
         run: |
           git config --global user.email ci@example.invalid
           git config --global user.name ci
           if [ "$RUNNER_OS" = Windows ]; then export SAN=; fi
+          just release
+          export PATH="$PWD/build:$PATH"
+          ast-grep --version
           just test test-installer
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
