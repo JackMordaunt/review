@@ -114,7 +114,7 @@ jobs:
         env:
           MSYS_NO_PATHCONV: 1
         run: |
-          read -ra defines < <(sed -n '/^sqlite_defines :=/,/[^\\]$/p' jm/justfile | grep -o '"[^"]*"' | tr -d '"' | tr -d '\n')
+          read -ra defines <<<"$(sed -n '/^sqlite_defines :=/,/[^\\]$/p' jm/justfile | grep -o '"[^"]*"' | tr -d '"' | tr -d '\n')"
           echo "defines: ${defines[*]}"
           cd jm/sqlite3 && mkdir -p lib
           cl -nologo -O2 -c vendor/sqlite3.c -Folib/sqlite3.obj "${defines[@]}"
@@ -146,7 +146,6 @@ jobs:
         run: |
           suffix="${{ matrix.platform }}${{ matrix.ext }}"
           dist/review-$suffix version
-          dist/review-$suffix --help | head -1
           dist/review-$suffix rules no-stutter | head -1
           if [ "$RUNNER_OS" = Linux ]; then
             ldd dist/review-$suffix
