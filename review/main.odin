@@ -36,6 +36,8 @@ usage: review [flags] [rev]      the staged change, or a revision range
        review agent              what an agent's instructions should say
        review bench [-n N] [-author A] [-rule R] [--fresh] [root]
                                  the checks' fire rate over recent commits
+       review version            which release this is
+       review update             fetch the latest release and replace these binaries
 
   --json           Report findings as JSON, for an agent rather than a person.
   --verbose        Show what each job read and what it cost.
@@ -79,7 +81,9 @@ main :: proc() {
 			os.exit(code)
 		}
 	}
-	os.exit(dispatch())
+	code := dispatch()
+	notify_update()
+	os.exit(code)
 }
 
 // dispatch is the program: a subcommand, or the review itself, returning
@@ -102,6 +106,10 @@ dispatch :: proc() -> int {
 			return 0
 		case "bench":
 			return run_bench(os.args[2:])
+		case "version", "--version", "-version":
+			return print_version()
+		case "update":
+			return run_update()
 		}
 	}
 	flags, ok := parse(os.args[1:])
