@@ -143,6 +143,10 @@ rules := []Rule {
 		"an added line drops an error: _ = err, an empty catch, an except that passes",
 	},
 	{
+		"odin-temp-in-loop",
+		"an added Odin line allocates from the temp allocator inside a loop that no guard, begin or free_all in it resets: growth no leak check sees",
+	},
+	{
 		"new-symbol-unreferenced",
 		"nothing in the repository refers to a new declaration but its own line",
 	},

@@ -126,6 +126,7 @@ noise on any struct not on a hot path.
 | `commented-out-code` | runs of added comment lines, an example the comment indents or fences aside | is this code kept as a comment — two statement-shaped lines, or one beyond doubt? |
 | `debug-leftover` | added lines against the debugging shapes of each language | is this a `debugger`, a `breakpoint()`, a `dbg!`, a `spew.Dump`, a `console.log`, a `set -x`, a `DEBUG` print? |
 | `error-swallowed` | added lines against the dropping shapes of each language | is this `_ = err`, an empty `catch`, an `except` that passes? |
+| `odin-temp-in-loop` | each added Odin call inside a `for` loop, parsed with Odin's own parser, and the resets in the loops around it | does the loop take from `context.temp_allocator` every iteration — a `fmt.tprintf`, a call handed it, `context.allocator` set to it — with no guard, begin or `free_all` in any enclosing loop to give it back? Calls into other procedures are not followed |
 | `new-symbol-unreferenced` | each new declaration's name as a whole word over every text file in the tree | does anything refer to it but its own line? A doc comment does not count |
 | `code-without-tests` | the added lines by file kind, and the tree's test files | does a change of 50 or more code lines touch no test, in a repository that keeps them? |
 

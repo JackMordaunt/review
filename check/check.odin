@@ -56,6 +56,7 @@ checks :: proc() -> []Check {
 		check_commented_code,
 		check_debug_leftovers,
 		check_swallowed_errors,
+		check_temp_in_loop,
 		check_unreferenced,
 		check_code_without_tests,
 	}
