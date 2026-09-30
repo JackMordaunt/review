@@ -11,6 +11,18 @@ import "../change"
 import "../finding"
 import "../tree"
 
+// A root that filepath.join keeps as one: on Windows a path must carry a
+// drive to be absolute, and join reads "/tree" as the relative "tree".
+when ODIN_OS == .Windows {
+	FAKE_TREE :: "C:/tree"
+	FAKE_REPO :: "C:/repo"
+	RESOLVED_JM :: `C:\jm`
+} else {
+	FAKE_TREE :: "/tree"
+	FAKE_REPO :: "/repo"
+	RESOLVED_JM :: "/jm"
+}
+
 @(test)
 parse_go_build_reads_the_errors :: proc(t: ^testing.T) {
 	out := "{\"ImportPath\":\"probe\",\"Action\":\"build-output\",\"Output\":\"# probe\\n\"}\n{\"ImportPath\":\"probe\",\"Action\":\"build-output\",\"Output\":\"./a.go:3:15: undefined: helper\\n\"}\n{\"ImportPath\":\"probe\",\"Action\":\"build-fail\"}\n"
@@ -85,8 +97,8 @@ parse_odin_tells_vet_from_type_errors :: proc(t: ^testing.T) {
 @(test)
 parse_tsc_ruff_mypy_cargo_semgrep :: proc(t: ^testing.T) {
 	ts := parse_tsc(
-		"/tree",
-		"/tree/web",
+		FAKE_TREE,
+		FAKE_TREE + "/web",
 		"src/a.ts(12,5): error TS2322: Type 'string' is not assignable to type 'number'.\nnoise\n",
 		context.temp_allocator,
 	)
@@ -126,8 +138,8 @@ parse_tsc_ruff_mypy_cargo_semgrep :: proc(t: ^testing.T) {
 		testing.expect_value(t, my[1].severity, finding.Severity.Note)
 	}
 	cg := parse_cargo(
-		"/tree",
-		"/tree/crate",
+		FAKE_TREE,
+		FAKE_TREE + "/crate",
 		`{"reason":"compiler-artifact","target":{}}
 {"reason":"compiler-message","message":{"level":"error","message":"cannot find value x","code":{"code":"E0425"},"spans":[{"file_name":"src/main.rs","line_start":3,"is_primary":false},{"file_name":"src/main.rs","line_start":4,"is_primary":true}]}}
 {"reason":"compiler-message","message":{"level":"warning","message":"unused variable","code":{"code":"unused_variables"},"spans":[{"file_name":"src/lib.rs","line_start":7,"is_primary":true}]}}
@@ -207,11 +219,11 @@ collections_resolve_against_the_repository :: proc(t: ^testing.T) {
 		) ==
 		nil,
 	)
-	got := collections(scratch, "/repo", context.temp_allocator)
+	got := collections(scratch, FAKE_REPO, context.temp_allocator)
 	testing.expect_value(
 		t,
 		fmt.tprint(got),
-		`["-collection:jm=/jm", "-collection:abs=/opt/abs"]`,
+		fmt.tprintf(`["-collection:jm=%s", "-collection:abs=/opt/abs"]`, RESOLVED_JM),
 	)
 	testing.expect_value(t, len(collections("/nowhere", "/repo", context.temp_allocator)), 0)
 }
@@ -233,6 +245,10 @@ nearest_walks_up :: proc(t: ^testing.T) {
 	testing.expect_value(t, relative("/tree", "/tree/a/b.go"), "a/b.go")
 	testing.expect_value(t, relative("/tree", "./a.go"), "a.go")
 	testing.expect_value(t, relative("/tree", "/elsewhere/a.go"), "/elsewhere/a.go")
+	when ODIN_OS == .Windows {
+		testing.expect_value(t, relative("C:/tree", `C:\tree\a\b.go`), "a/b.go")
+		testing.expect_value(t, relative(`C:\tree`, "C:/tree/a.go"), "a.go")
+	}
 	testing.expect_value(t, dir_of("a.go"), ".")
 	testing.expect_value(t, dir_of("x/y/a.go"), "x/y")
 
