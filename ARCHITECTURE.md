@@ -54,9 +54,9 @@ is kept out of the packet and measured by a static check instead.
 
 ## The static checks
 
-Twenty-seven checks run before anything is asked of a provider, and whether or not one can
+Twenty-nine checks run before anything is asked of a provider, and whether or not one can
 be asked. Seven measure the commit message; one measures the diff's shape; one measures
-the change against the repository's history; two hold the review to itself; sixteen
+the change against the repository's history; two hold the review to itself; eighteen
 measure the code the change adds. Then the repository's own compilers and analysers run,
 each with its strictest settings and asked for JSON, over the units the change touched.
 Static analysis is cheaper than a reading, so wherever a rule turned out to be a
@@ -126,6 +126,7 @@ noise on any struct not on a hot path.
 | `commented-out-code` | runs of added comment lines, an example the comment indents or fences aside | is this code kept as a comment — two statement-shaped lines, or one beyond doubt? |
 | `debug-leftover` | added lines against the debugging shapes of each language | is this a `debugger`, a `breakpoint()`, a `dbg!`, a `spew.Dump`, a `console.log`, a `set -x`, a `DEBUG` print? |
 | `error-swallowed` | added lines against the dropping shapes of each language | is this `_ = err`, an empty `catch`, an `except` that passes? |
+| `odin-destroy-incomplete` | each Odin struct in a package the change touches, its fields, and the destroy, free or deinit procedure that takes it | does the release hand every owning field — string, slice, map, dynamic array, pointer, a struct with its own release — to some call? Only a field or a release the change adds a line to is judged; `free_all` or an arena destroy spares the struct |
 | `odin-temp-in-loop` | each added Odin call inside a `for` loop, parsed with Odin's own parser, and the resets in the loops around it | does the loop take from `context.temp_allocator` every iteration — a `fmt.tprintf`, a call handed it, `context.allocator` set to it — with no guard, begin or `free_all` in any enclosing loop to give it back? Calls into other procedures are not followed |
 | `new-symbol-unreferenced` | each new declaration's name as a whole word over every text file in the tree | does anything refer to it but its own line? A doc comment does not count |
 | `code-without-tests` | the added lines by file kind, and the tree's test files | does a change of 50 or more code lines touch no test, in a repository that keeps them? |
@@ -174,7 +175,7 @@ change removes and reports each file that lost one, must-fix; a test that was re
 is spared, judged name-word by name-word, and a deleted test that survived as a new
 test elsewhere in the change is spared the same way.
 
-The sixteen about the code read what the language frontends read — declarations with
+The eighteen about the code read what the language frontends read — declarations with
 their bodies, tests, comments — and the diff's added lines where a shape is enough.
 Their thresholds were measured rather than guessed. Function length and depth were read
 off 8,255 functions in the repositories on this machine: the 95th percentile of length

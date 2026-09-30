@@ -37,14 +37,47 @@ Comment :: struct {
 	indent: int,
 }
 
+// Struct is a struct type and its fields, as the Odin sidecar reports
+// them, for the check that reads what a type owns.
+Struct :: struct {
+	name:   string,
+	line:   int,
+	fields: []Field,
+}
+
+// Field is one field of a struct. shape is string, slice, map, dynamic or
+// pointer for a type that owns memory by its form, named for a type
+// named by a bare identifier, and other for the rest.
+Field :: struct {
+	name:  string,
+	type:  string,
+	shape: string,
+	line:  int,
+}
+
+// Release is a procedure that looks like it frees a value of target:
+// names are the identifiers its body hands to calls, and frees_all is a
+// call to free_all or an arena's destroy.
+Release :: struct {
+	name:      string,
+	line:      int,
+	end_line:  int,
+	target:    string,
+	names:     []string,
+	frees_all: bool,
+}
+
 // File is what one source file declares. An error is a file the sidecar
-// could not parse; its lists are then empty rather than missing.
+// could not parse; its lists are then empty rather than missing. structs
+// and releases are the Odin sidecar's alone.
 File :: struct {
 	name:     string,
 	pkg:      string `json:"package"`,
 	imports:  []string,
 	decls:    []Decl,
 	comments: []Comment,
+	structs:  []Struct,
+	releases: []Release,
 	error:    string,
 }
 

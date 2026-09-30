@@ -67,7 +67,11 @@ release: deps
 test: deps
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p build/test
+    mkdir -p build/test/bin
+    # The tests that read Odin through the sidecar read this tree's, not
+    # whichever one is installed.
+    {{odin}} build sidecar/odin {{flags}} -out:build/test/bin/odin-review-extract{{exe}}
+    export PATH="$PWD/build/test/bin:$PATH"
     for p in {{packages}}; do
         {{odin}} test $p {{flags}} {{san}} -out:build/test/$p{{exe}}
     done

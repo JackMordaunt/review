@@ -143,6 +143,10 @@ rules := []Rule {
 		"an added line drops an error: _ = err, an empty catch, an except that passes",
 	},
 	{
+		"odin-destroy-incomplete",
+		"an Odin struct's destroy, free or deinit procedure never hands an owning field — a string, slice, map, dynamic array, pointer or struct with its own destroy — to any call, where the change adds the field or touches the procedure; an arena freed whole spares the struct",
+	},
+	{
 		"odin-temp-in-loop",
 		"an added Odin line allocates from the temp allocator inside a loop that no guard, begin or free_all in it resets: growth no leak check sees",
 	},
