@@ -181,3 +181,7 @@ just install
 [ARCHITECTURE.md](ARCHITECTURE.md) explains every check and job, the JSON
 contract, the cache, the providers, how releases are signed, and what each
 directory in this repository is for.
+
+## Licence
+
+Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
