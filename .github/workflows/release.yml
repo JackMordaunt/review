@@ -1,0 +1,203 @@
+# Builds the four binaries for each platform on every push — review, and the
+# review-go, review-vet and odin-review-extract sidecars — and, on a version
+# tag, publishes them with a signed sha256sums.txt, which is what install.sh,
+# install.ps1 and `review update` download.
+#
+# Versions are calendar tags the way Odin's are: dev-YYYY-MM, with a letter
+# for a second release in a month (dev-2026-09a). dev-YYYY-MM-rcN is a
+# release candidate, published as a prerelease, so releases/latest and
+# `review update` never offer it; REVIEW_VERSION=<tag> installs it.
+name: release
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["dev-*"]
+  workflow_dispatch:
+
+permissions: {}
+
+# CI builds the Odin compiler review is developed with, not a release: the
+# commit is tagged in the fork (setup-odin clones a branch or tag, never a
+# bare commit), and LLVM matches the local build's major version. Moving to
+# a newer Odin is: tag the new commit in the fork, and change ODIN_PIN.
+env:
+  ODIN_REPO: https://github.com/JackMordaunt/Odin
+  ODIN_PIN: brainfold-pin-984eb69e0
+  ODIN_LLVM: "22"
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux_amd64
+            platform: linux-amd64
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-24.04-arm
+            target: linux_arm64
+            platform: linux-arm64
+            goos: linux
+            goarch: arm64
+          - os: macos-latest
+            target: darwin_arm64
+            platform: darwin-arm64
+            goos: darwin
+            goarch: arm64
+          # Intel macOS is cross-compiled on the arm64 runner: the SQLite
+          # archive is built with -arch x86_64 and Odin links for the target.
+          - os: macos-latest
+            target: darwin_amd64
+            platform: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            cc: cc -arch x86_64
+          - os: windows-latest
+            target: windows_amd64
+            platform: windows-amd64
+            goos: windows
+            goarch: amd64
+            ext: .exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      # jm is a submodule, pinned to the commit local builds use.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: true
+          persist-credentials: false
+      # Before Odin: build.bat compiles it with MSVC.
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        if: runner.os == 'Windows'
+      - uses: laytan/setup-odin@8536d8fa450ec6f1bd9ddc84bbaaf16296c0051d # v2.12.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ env.ODIN_REPO }}
+          branch: ${{ env.ODIN_PIN }}
+          release: ""
+          llvm-version: ${{ env.ODIN_LLVM }}
+          build-type: release
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          # A release build restores nothing another run could have written.
+          cache: false
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+        with:
+          just-version: "1.58.0"
+
+      # jm:http links the system libcurl, so the link needs its dev symlink.
+      - name: curl link deps (linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev
+      # jm:sqlite3 links an archive built from the vendored amalgamation with
+      # jm's own compile options; its recipe builds it on Unix.
+      - name: sqlite archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cd jm && CC="${{ matrix.cc || 'cc' }}" just sqlite
+      # jm's Windows recipe is written for PowerShell; the same defines are
+      # read out of its justfile text and given to cl directly. Not
+      # `just --evaluate`: on Windows, just 1.4x refuses the whole file over
+      # a recipe whose dependency is unix-only.
+      - name: sqlite archive (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        # Git Bash rewrites a /flag into C:/Program Files/Git/flag before
+        # cl sees it, hence the dash flags and no path conversion at all.
+        env:
+          MSYS_NO_PATHCONV: 1
+        run: |
+          read -ra defines < <(sed -n '/^sqlite_defines :=/,/[^\\]$/p' jm/justfile | grep -o '"[^"]*"' | tr -d '"' | tr -d '\n')
+          echo "defines: ${defines[*]}"
+          cd jm/sqlite3 && mkdir -p lib
+          cl -nologo -O2 -c vendor/sqlite3.c -Folib/sqlite3.obj "${defines[@]}"
+          lib -nologo -OUT:lib/sqlite3.lib lib/sqlite3.obj
+
+      # A tag build carries its version; any other build is "dev" and will
+      # not update itself. The sidecars follow review's release and carry
+      # no version of their own.
+      - name: build
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          suffix="${{ matrix.platform }}${{ matrix.ext }}"
+          flags=(-o:speed -vet -strict-style "-collection:jm=$PWD/jm" "-target:${{ matrix.target }}")
+          version=()
+          case "$GITHUB_REF" in refs/tags/*) version=("-define:VERSION=$GITHUB_REF_NAME") ;; esac
+          odin build review "${flags[@]}" "${version[@]}" -define:COMMIT="\"${GITHUB_SHA::7}\"" "-out:dist/review-$suffix"
+          odin build sidecar/odin "${flags[@]}" "-out:dist/odin-review-extract-$suffix"
+          go build -trimpath -ldflags='-s -w' -o dist/review-go-$suffix ./sidecar/gofront
+          go build -C sidecar/govet -trimpath -ldflags='-s -w' -o ../../dist/review-vet-$suffix .
+          ls -l dist
+      - name: smoke test
+        if: matrix.target != 'darwin_amd64'
+        shell: bash
+        run: |
+          suffix="${{ matrix.platform }}${{ matrix.ext }}"
+          dist/review-$suffix version
+          dist/review-$suffix --help | head -1
+          dist/review-$suffix rules no-stutter | head -1
+          if [ "$RUNNER_OS" = Linux ]; then
+            ldd dist/review-$suffix
+          fi
+      # The packages' tests and the installer tests, as `just test` runs them
+      # locally, on every runner that can run what it builds. The publish job
+      # needs every build, so a tag whose tests fail never ships. Windows runs
+      # them without the address sanitizer, whose HeapSize hook aborts on
+      # memory Windows allocated itself.
+      - name: test
+        if: matrix.target != 'darwin_amd64'
+        shell: bash
+        run: |
+          git config --global user.email ci@example.invalid
+          git config --global user.name ci
+          if [ "$RUNNER_OS" = Windows ]; then export SAN=; fi
+          just test test-installer
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: review-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: assets
+          merge-multiple: true
+      - run: cd assets && sha256sum ./*-* | sed "s| \./| |" > sha256sums.txt && cat sha256sums.txt
+      # The checksum file is signed with the key whose public half the
+      # binary embeds; `review update` trusts nothing that does not verify.
+      - name: sign
+        env:
+          KEY: ${{ secrets.REVIEW_SIGNING_KEY }}
+        run: |
+          printf '%s\n' "$KEY" > key.pem
+          openssl pkeyutl -sign -rawin -in assets/sha256sums.txt -inkey key.pem -out assets/sha256sums.txt.sig
+          openssl pkeyutl -verify -rawin -in assets/sha256sums.txt -inkey key.pem -sigfile assets/sha256sums.txt.sig
+          rm -f key.pem
+          echo "$GITHUB_REF_NAME" > assets/version.txt
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          prerelease=()
+          case "$GITHUB_REF_NAME" in *-rc*) prerelease=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes "${prerelease[@]}" assets/*

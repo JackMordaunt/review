@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
   "collections": [
-    { "name": "jm", "path": "../jm" }
+    { "name": "jm", "path": "jm" }
   ],
   "enable_semantic_tokens": true,
   "enable_snippets": true
