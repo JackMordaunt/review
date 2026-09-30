@@ -234,15 +234,20 @@ on_path :: proc(binary: string) -> bool {
 
 // relative is a path relative to the tree, where it lies inside it.
 relative :: proc(tree_dir, path: string) -> string {
-	if strings.has_prefix(path, tree_dir) &&
-	   len(path) > len(tree_dir) &&
-	   path[len(tree_dir)] == '/' {
-		return path[len(tree_dir) + 1:]
+	dir, p := tree_dir, path
+	when ODIN_OS == .Windows {
+		// A Windows tool reports either separator; git and the report
+		// use '/'.
+		dir, _ = strings.replace_all(dir, "\\", "/", context.temp_allocator)
+		p, _ = strings.replace_all(p, "\\", "/", context.temp_allocator)
 	}
-	if strings.has_prefix(path, "./") {
-		return path[2:]
+	if strings.has_prefix(p, dir) && len(p) > len(dir) && p[len(dir)] == '/' {
+		return p[len(dir) + 1:]
 	}
-	return path
+	if strings.has_prefix(p, "./") {
+		return p[2:]
+	}
+	return p
 }
 
 // join is a path under a directory.

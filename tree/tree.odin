@@ -63,7 +63,10 @@ materialise :: proc(root, rev: string, allocator := context.allocator) -> (dir: 
 		os.remove_all(scratch)
 		return "", false
 	}
-	return scratch, true
+	// The analysers report real paths, and macOS's temp directory is under
+	// /var, a link to /private/var: the tree is named as they will name it,
+	// or no finding would land inside it.
+	return os.get_absolute_path(scratch, allocator) or_else scratch, true
 }
 
 // files lists the tracked paths at the end of the change. The staged

@@ -260,7 +260,11 @@ go_fixture :: proc(t: ^testing.T) -> (root: string, ok: bool) {
 	if err != nil {
 		testing.fail_now(t, "no scratch directory")
 	}
-	root = scratch
+	// The root as git.toplevel names it, symlinks resolved: macOS's temp
+	// directory is under /var, a link to /private/var, and go reports the
+	// real path; with the link left in, vet found nothing on macOS (release
+	// run 36747721533).
+	root = os.get_absolute_path(scratch, context.temp_allocator) or_else scratch
 	git := proc(root: string, args: ..string) -> bool {
 		argv := make([dynamic]string, context.temp_allocator)
 		append(
