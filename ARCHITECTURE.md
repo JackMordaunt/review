@@ -1,44 +1,31 @@
-# review
+# Architecture
 
-Reads a change the way several narrow readers would, and reports what they noticed.
+How `review` works, for people changing it or arguing with a finding. The
+[README](README.md) is enough to use it.
 
-It is **advisory** unless asked to gate. By default it never fails a build and never
-blocks a commit — the deterministic checks a repository already runs are what should do
-that; `--exit-code` lets a hook make it one of them. It looks at what those checks
-cannot: whether a name says what the thing is, whether a fact is already stated
-somewhere else, whether a test can fail, whether a comment claims something nobody
-verified — and, before any of that is asked of a model, at everything about the change
-that a comparison can settle.
+## Layout
 
-```
-review                          the staged change
-review HEAD^..HEAD              the last commit
-review --json                   for an agent rather than a person
-review --show                   what each job would be sent, and what the static checks found
-review --fresh                  the change again, asking rather than replaying the cache
-review --no-verify              skip the second reading that verifies the findings
-review --message-file "$1"      the staged change with the message a commit-msg hook is given
-review --exit-code              exit 1 when a must-fix finding stands, for a hook
-review --baseline last.json     which findings resolved, persist, or are new since that report
-review rules [job | rule]       what a finding was judged against
-review rules -dismissed         how often each rule is dismissed in this tree, and why
-review bench [-n 200] [-author x] [-rule id] [--fresh]   fire rate of every static check over recent commits
-review hook install             the commit-msg hook that makes the review a gate
-review agent                    what an agent's instructions should say about this tool
-```
-
-## Building
-
-The tool is written in Odin, on the `jm` collection (`~/Source/Personal/jm`), and
-reads each language through a sidecar built on that language's own parser. `just build`
-compiles the four binaries into `build/`; `just install` puts them beside each other in
-`~/.local/bin`, or the next writable directory on the path, and clears any copy left in
-a Go path by the version of this tool that was written in Go: `review`, `review-go`
-(Go's parser, from `sidecar/gofront`), `review-vet` (go
-vet's multichecker, from `sidecar/govet`) and `odin-review-extract` (Odin's parser, from
-`sidecar/odin`). `just test` type-checks and runs every package's tests and the Go
-sidecar's. The repository's own `ols.json` names the collection for the editor and for
-the `odin-check` analyser.
+| path | what it is |
+|------|------------|
+| `review/` | the command: flags, subcommands, `version` and `update` |
+| `change/` | the change: its diff, its message, and what each file adds |
+| `tree/` | the repository as it stands at the end of the change |
+| `git/` | the questions asked of the git program: the diff, the history, one archive |
+| `frontend/` | the language readers: the sidecars and ast-grep, behind one JSON shape |
+| `check/` | the deterministic checks |
+| `analyser/` | the repository's own compilers and linters, kept to the change |
+| `job/`, `criteria/` | the model jobs, and the rules each finding must cite |
+| `provider/` | who answers: the console API, `claude`, `pi`, or any command |
+| `reviewer/` | runs the jobs, then the second reading that verifies them |
+| `cache/` | the answer cache |
+| `finding/`, `report/` | one finding; the whole report, rendered or as JSON |
+| `hook/` | the commit-msg hook and the text `review agent` prints |
+| `bench/` | fire rates over recent commits, and the memo that makes a rerun cheap |
+| `txt/` | readings of plain text several packages share |
+| `sidecar/gofront` | `review-go`: Go's own parser, printing declarations as JSON |
+| `sidecar/govet` | `review-vet`: go vet's multichecker with the analysers vet leaves out |
+| `sidecar/odin` | `odin-review-extract`: Odin's own parser, printing the same JSON |
+| `jm/` | the [jm](https://mordaunt.dev/code/jm) collection, pinned as a submodule |
 
 ## The jobs
 
@@ -476,3 +463,41 @@ and semgrep are run as they are, with their strictest settings, and their word i
 the change. The code
 checks here measure what those tools leave alone — a test that asserts nothing, a body
 written twice, a name nothing refers to — and hand the rest to the readings.
+
+## Releases
+
+`.github/workflows/release.yml` builds the four binaries on Linux (amd64,
+arm64), macOS (arm64, and amd64 cross-compiled on the arm64 runner) and
+Windows (amd64) on every push, and runs `just test` and `just
+test-installer` on each runner that can run what it built. A tag publishes
+them; nothing else does.
+
+Tags are calendar versions, the way Odin's are: `dev-YYYY-MM`, with a letter
+for a second release in a month (`dev-2026-10a`). `dev-YYYY-MM-rcN` is a
+release candidate, published as a GitHub prerelease, so
+`releases/latest`, the installers and `review update` never offer it;
+`REVIEW_VERSION=<tag>` installs one. A tag build carries its tag as
+`-define:VERSION`; every other build is `dev` and refuses to update itself.
+
+A release holds one asset per binary and platform, named
+`<binary>-<os>-<arch>[.exe]`, a `sha256sums.txt` over all of them, its
+Ed25519 signature `sha256sums.txt.sig`, and `version.txt`. The signing key's
+private half is the repository secret `REVIEW_SIGNING_KEY`; the public half
+is `PUBLIC_KEY` in `review/version.odin`. `review update` is
+[jm:selfupdate](https://mordaunt.dev/code/jm): nothing is trusted until the
+signature verifies, an update exists when a published hash differs from the
+binary on disk, and each binary is renamed to `<name>.old` before its
+replacement moves in. The three sidecars are replaced first, then `review`,
+which runs itself again and reports what it now is. A binary installed as a
+symlink is left alone.
+
+On a terminal, `review` checks once a day, with a three-second timeout, and
+repeats a one-line hint until the update is taken. Hooks, agents and pipes
+never see it: the check runs only when stderr is a terminal, and
+`REVIEW_NO_UPDATE` turns it off. The stamp and the hint live beside the
+answer cache.
+
+The installers repeat `RELEASE_BASE`, since they run before any binary
+exists; `just test-installer` checks the three agree, installs from a fake
+release on disk, and makes sure a checksum that no longer matches installs
+nothing.

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 134 36" width="134" height="36" role="img" aria-label="Windows">
+  <rect x="0.75" y="0.75" width="132.5" height="34.5" rx="17.25" fill="#f2f1ec" stroke="#1c1b1a22" stroke-width="1.5"/>
+  <g transform="translate(15 8) scale(0.833)" fill="#1c1b1a"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></g>
+  <text x="44" y="23" font-family="JetBrains Mono, JetBrainsMono Nerd Font, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700" font-size="14" fill="#1c1b1a">Windows</text>
+</svg>
