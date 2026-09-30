@@ -106,7 +106,7 @@ test-installer: release
       cp "build/$b{{exe}}" "$rel/$b-$os-$arch{{exe}}"
       cp "build/$b{{exe}}" "$rel/$b-windows-amd64.exe"
     done
-    (cd "$rel" && { command -v sha256sum >/dev/null && sha256sum ./*-* || shasum -a 256 ./*-*; } | sed 's| \./| |' > sha256sums.txt)
+    (cd "$rel" && { command -v sha256sum >/dev/null && sha256sum ./*-* || shasum -a 256 ./*-*; } | sed 's|\./||' > sha256sums.txt)
     p=$(cygpath -m "$rel" 2>/dev/null || printf '%s' "$rel")
     export REVIEW_RELEASE_BASE="file:///${p#/}"
     w() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }

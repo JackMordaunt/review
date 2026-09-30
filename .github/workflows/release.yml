@@ -211,7 +211,7 @@ jobs:
         with:
           path: assets
           merge-multiple: true
-      - run: cd assets && sha256sum ./*-* | sed "s| \./| |" > sha256sums.txt && cat sha256sums.txt
+      - run: cd assets && sha256sum ./*-* | sed "s|\./||" > sha256sums.txt && cat sha256sums.txt
       # The checksum file is signed with the key whose public half the
       # binary embeds; `review update` trusts nothing that does not verify.
       - name: sign
