@@ -138,7 +138,7 @@ stands, and prints the stanza that does the same for Claude Code before any
 ## Languages and tools
 
 Go and Odin are read through their own parsers, shipped as sidecars.
-TypeScript, JavaScript, Python, Rust and shell are read through
+TypeScript, JavaScript, Python, Rust, Java and shell are read through
 [ast-grep](https://ast-grep.github.io) when it is installed. Any other
 language still gets its comments, its commit message and its history
 checked.

@@ -1371,3 +1371,41 @@ names_unknown_reads_the_tree :: proc(t: ^testing.T) {
 	}
 	_ = slice.contains([]int{1}, 1)
 }
+
+@(test)
+java_tests_are_read :: proc(t: ^testing.T) {
+	// A deleted Java test is the method its annotation marks, on its own
+	// line or below others; the helper deleted beside it is not a test.
+	deleted := change.Change {
+		diff = "--- a/src/test/java/QuarryTest.java\n+++ b/src/test/java/QuarryTest.java\n@@ -1,12 +1,2 @@\n class QuarryTest {\n-    @Test\n-    void digsDown() { assertEquals(1, 1); }\n-    @ParameterizedTest\n-    @ValueSource(ints = {1, 2})\n-    public void digsMany(int n) {}\n-    @Test void inline() {}\n-    void helper() {}\n }\n",
+	}
+	got := collect(Scope{c = &deleted}, check_deleted_tests, context.temp_allocator)
+	testing.expect_value(t, len(got), 1)
+	if len(got) == 1 {
+		for name in ([]string{"digsDown", "digsMany", "inline"}) {
+			testing.expectf(t, strings.contains(got[0].message, name), "%s is named: %s", name, got[0].message)
+		}
+		testing.expect(t, !strings.contains(got[0].message, "helper"))
+	}
+	testing.expect(t, is_test_file("src/test/java/dev/QuarryTest.java"))
+	testing.expect(t, !is_test_file("src/main/java/dev/Quarry.java"))
+	testing.expect_value(t, keywords_for("src/main/java/dev/Quarry.java", ""), "java")
+	testing.expect(
+		t,
+		assertless(
+			change.Function {
+				name = "digs",
+				file = "src/test/java/QuarryTest.java",
+				body = "void digs() {\n    new Quarry().dig();\n}",
+			},
+		),
+	)
+	for body in ([]string{"void digs() { assertEquals(1, q.depth()); }", "void digs() { assertThat(q.depth()).isOne(); }", "void digs() { fail(\"no\"); }"}) {
+		testing.expectf(
+			t,
+			!assertless(change.Function{name = "digs", file = "src/test/java/QuarryTest.java", body = body}),
+			"%s asserts",
+			body,
+		)
+	}
+}

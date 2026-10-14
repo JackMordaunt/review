@@ -2,6 +2,7 @@ package frontend
 
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "core:testing"
 
 write_temp :: proc(t: ^testing.T, name, src: string) -> string {
@@ -315,6 +316,121 @@ cache_tar() {
 	)
 	defer os.remove(sh)
 	out, err := scan(.Bash, {sh}, context.temp_allocator)
+	testing.expect_value(t, err, Scan_Error.None)
+	testing.expect_value(t, out.files[0].error, "ast-grep could not parse it")
+	testing.expect_value(t, len(out.files[0].decls), 0)
+}
+
+@(test)
+ast_grep_reads_java :: proc(t: ^testing.T) {
+	if !installed(.Java) {
+		testing.fail_now(t, "ast-grep is not on the path")
+	}
+	java := write_fixture(
+		t,
+		"review_grep_fixture.java",
+		`package dev.example;
+
+/** Quarry digs stone. */
+public final class Quarry {
+    // LIMIT caps the depth.
+    static final int LIMIT = 3;
+    private int depth;
+
+    /**
+     * Builds one at a depth.
+     */
+    public Quarry(int depth) { this.depth = depth; }
+
+    @Override
+    protected String toString() {
+        Runnable r = new Runnable() { public void run() {} };
+        return "quarry";
+    }
+
+    @Test
+    void digsDown() {
+        assertEquals(1, new Quarry(1).depth);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @ValueSource(ints = {1, 2})
+    void digsMany(int n) { assertTrue(n > 0); }
+
+    void helper() {}
+
+    record Point(int x, int y) {}
+    interface Shape { double area(); }
+    enum Colour { RED, GREEN }
+    @interface Marker {}
+}
+`,
+	)
+	defer os.remove(java)
+	out, err := scan(.Java, {java}, context.temp_allocator)
+	testing.expect_value(t, err, Scan_Error.None)
+	testing.expect_value(t, out.files[0].error, "")
+	by := make(map[string][dynamic]Decl, context.temp_allocator)
+	for d in out.files[0].decls {
+		if d.name not_in by {
+			by[d.name] = make([dynamic]Decl, context.temp_allocator)
+		}
+		append(&by[d.name], d)
+	}
+	// The class and its constructor share a name; run, in the anonymous
+	// class, is a local and left out.
+	testing.expect_value(t, len(out.files[0].decls), 13)
+	testing.expect(t, "run" not_in by)
+	class, ctor := by["Quarry"][0], by["Quarry"][1]
+	testing.expect_value(t, class.kind, "type")
+	testing.expect_value(t, class.doc, "Quarry digs stone.")
+	testing.expect(t, class.exported)
+	testing.expect_value(t, ctor.kind, "func")
+	testing.expect_value(t, ctor.doc, "Builds one at a depth.")
+	testing.expect_value(t, ctor.line, 12)
+	testing.expect_value(t, by["LIMIT"][0].kind, "value")
+	testing.expect_value(t, by["LIMIT"][0].doc, "LIMIT caps the depth.")
+	testing.expect(t, !by["LIMIT"][0].exported)
+	testing.expect_value(t, by["depth"][0].kind, "field")
+	// An annotated method sits on its name's line, its body runs from
+	// there, and its audience is read past the annotation.
+	to_string := by["toString"][0]
+	testing.expect_value(t, to_string.line, 15)
+	testing.expect_value(t, to_string.end_line, 18)
+	testing.expect_value(t, to_string.text, "protected String toString() {")
+	testing.expect(t, to_string.exported)
+	testing.expect(t, !to_string.test)
+	testing.expect(t, strings.has_prefix(to_string.body, "protected String toString()"))
+	testing.expect(t, by["digsDown"][0].test)
+	testing.expect_value(t, by["digsDown"][0].line, 21)
+	testing.expect_value(t, by["digsDown"][0].end_line, 23)
+	testing.expect(t, by["digsMany"][0].test)
+	testing.expect_value(t, by["digsMany"][0].line, 27)
+	testing.expect(t, !by["helper"][0].test)
+	for name in ([]string{"Point", "Shape", "Colour", "Marker"}) {
+		testing.expectf(t, by[name][0].kind == "type", "%s is a type", name)
+	}
+	// An interface and its method share a line and are both kept.
+	testing.expect_value(t, by["area"][0].kind, "func")
+	testing.expect_value(t, by["area"][0].line, by["Shape"][0].line)
+}
+
+@(test)
+ast_grep_declines_a_java_file_it_cannot_parse :: proc(t: ^testing.T) {
+	if !installed(.Java) {
+		testing.fail_now(t, "ast-grep is not on the path")
+	}
+	java := write_fixture(
+		t,
+		"review_grep_broken.java",
+		`class Broken {
+    void f() { int x = ; }
+    void g() {}
+}
+`,
+	)
+	defer os.remove(java)
+	out, err := scan(.Java, {java}, context.temp_allocator)
 	testing.expect_value(t, err, Scan_Error.None)
 	testing.expect_value(t, out.files[0].error, "ast-grep could not parse it")
 	testing.expect_value(t, len(out.files[0].decls), 0)

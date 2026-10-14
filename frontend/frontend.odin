@@ -95,6 +95,7 @@ Sidecar :: enum {
 	Python,
 	Rust,
 	Bash,
+	Java,
 }
 
 // Scan_Error says why a scan returned nothing: the sidecar is not on the
@@ -113,7 +114,7 @@ binary :: proc(sidecar: Sidecar) -> string {
 		return "review-go"
 	case .Odin:
 		return "odin-review-extract"
-	case .Script, .Python, .Rust, .Bash:
+	case .Script, .Python, .Rust, .Bash, .Java:
 		return "ast-grep"
 	}
 	return ""
@@ -135,6 +136,8 @@ sidecar_for :: proc(path: string, shell := "") -> (sidecar: Sidecar, covered: bo
 		return .Python, installed(.Python)
 	case strings.has_suffix(path, ".rs"):
 		return .Rust, installed(.Rust)
+	case strings.has_suffix(path, ".java"):
+		return .Java, installed(.Java)
 	case shell != "":
 		return .Bash, installed(.Bash)
 	}

@@ -112,7 +112,7 @@ noise on any struct not on a hot path.
 | `formatting-mixed-in` | git's count of changed lines with and without whitespace | is half the diff reformatting, with at least ten lines of logic hidden in it? |
 | `history-coupled-file` | each changed file's co-changes over the last 1,000 commits, as a Jaccard | does history tie this file to a partner the change does not touch — the test beside the code, the header beside the source, the golden file beside the renderer? |
 | `suppression-added` | dismissal comments the change adds | is the change dismissing what the readers would have found, before the readers ran? |
-| `test-deleted` | test functions the change removes, in Go, TypeScript, JavaScript, Python and Rust | is the change deleting the tests that would have failed? |
+| `test-deleted` | test functions the change removes, in Go, TypeScript, JavaScript, Python, Rust and Java | is the change deleting the tests that would have failed? |
 | `no-stutter` | each exported name's first word against its package | does `ico.IcoEntry` say ico twice? `time.Time` is the idiom and is spared |
 | `no-shadow` | each new name against Go's predeclared identifiers and standard library packages, the JavaScript runtime's globals, Python's builtins, or a shell's builtins and standard utilities | does the name take a word the language already uses? |
 | `abbreviation` | each word of a new name against a short list | is this `cfg`, `mgr`, `hdlr`, `svc`, `btn`, `cnt`: a word the reader expands rather than reads? |
@@ -442,7 +442,11 @@ parser, and Odin through `odin-review-extract`, built from `sidecar/odin` on Odi
 both print one JSON shape the tool reads. TypeScript and JavaScript — `.ts`,
 `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` — are read through ast-grep when it is on the
 path, by pattern; Python and Rust through the same ast-grep, by node kind — a function
-is whatever the grammar calls one, and its name is read out of the match.
+is whatever the grammar calls one, and its name is read out of the match. Java is read
+the same way, its name taken from the grammar's name node rather than the match text,
+since a method's match begins at its annotations; a Java test is a method a JUnit or
+TestNG test annotation marks, and a Java file the grammar leaves an error node in is
+uncovered, as a shell script's is.
 Shell scripts — bash, POSIX sh, ksh and bats — are read through the same ast-grep, by
 node kind. They are the one language here whose files usually carry no extension, so a
 script is recognised by its shebang, read once when the change is gathered and told to

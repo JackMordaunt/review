@@ -52,6 +52,13 @@ init_keywords :: proc "contextless" () {
 		where while Some None Ok Err Vec String Option Result Box i8 i16 i32 i64 u8 u16 u32 u64 usize
 		isize f32 f64 bool char str`,
 	)
+	keywords["java"] = set(
+		`abstract assert boolean break byte case catch char class const continue default do double
+		else enum extends final finally float for goto if implements import instanceof int interface
+		long native new package private protected public return short static strictfp super switch
+		synchronized this throw throws transient try void volatile while var record yield sealed
+		permits true false null String Object Integer Long Double Boolean List Map Set Optional`,
+	)
 	keywords["odin"] = set(
 		`package import foreign proc struct union enum bit_set map dynamic using if else when for
 		switch case in not_in defer return break continue fallthrough cast transmute auto_cast distinct
@@ -79,6 +86,8 @@ keywords_for :: proc(path, shell: string) -> string {
 		return "py"
 	case strings.has_suffix(path, ".rs"):
 		return "rs"
+	case strings.has_suffix(path, ".java"):
+		return "java"
 	case grammar_of(path) != "":
 		return "js"
 	case shell != "":

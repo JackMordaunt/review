@@ -1,6 +1,7 @@
 package frontend
 
-// TypeScript, JavaScript, Python and Rust are read through ast-grep, which
+// TypeScript, JavaScript, Python, Rust, shell and Java are read through
+// ast-grep, which
 // matches patterns and node kinds against the tree-sitter syntax tree
 // rather than against lines. A pattern over lines misses an indented
 // constant inside a block; a query over syntax does not. The answer is
@@ -76,7 +77,8 @@ ts_test_patterns := []string {
 
 // Kind_Rule is one declaration shape read by node kind: the ast-grep rule
 // that matches it, the kind the tool reports it as, and the expression
-// that reads its name out of the match text.
+// that reads its name out of the match text. A rule with no expression
+// binds the name node to $N instead.
 Kind_Rule :: struct {
 	id:   string,
 	kind: string,
@@ -147,6 +149,59 @@ rs_rules := []Kind_Rule {
 }
 
 @(private = "file")
+java_top :: "  not:\n    inside:\n      any:\n        - kind: block\n        - kind: constructor_body\n        - kind: lambda_expression\n        - kind: object_creation_expression\n      stopBy: end\n"
+
+// java_test_annotation is the annotation text a test method carries, by
+// simple or qualified name: @Test, which JUnit 4, JUnit 5 and TestNG all
+// use, and JUnit 5's parameterised, repeated, factory and template forms.
+java_test_annotation :: `^@(?:[\w.]+\.)?(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b`
+
+// Java: the five type declarations, methods and constructors, and
+// fields, wherever a class body holds them; what sits inside a method,
+// a lambda or an anonymous class is a local and left out. The name is
+// the grammar's name node, bound to $N, so annotations and modifiers
+// above it are never mistaken for it. A test is a method a JUnit or
+// TestNG test annotation marks — not every method of a class under
+// src/test, which holds helpers and fixtures as well; the file is a test
+// file by its directory all the same.
+@(private = "file")
+java_rules := []Kind_Rule {
+	{
+		"java-type",
+		"type",
+		"  any:\n    - kind: class_declaration\n    - kind: interface_declaration\n    - kind: enum_declaration\n    - kind: record_declaration\n    - kind: annotation_type_declaration\n  has:\n    field: name\n    pattern: $N\n" +
+		java_top,
+		"",
+		false,
+	},
+	{
+		"java-func",
+		"func",
+		"  any:\n    - kind: method_declaration\n    - kind: constructor_declaration\n    - kind: compact_constructor_declaration\n  has:\n    field: name\n    pattern: $N\n" +
+		java_top,
+		"",
+		false,
+	},
+	{
+		"java-field",
+		"field",
+		"  any:\n    - kind: field_declaration\n    - kind: constant_declaration\n  has:\n    field: declarator\n    has:\n      field: name\n      pattern: $N\n" +
+		java_top,
+		"",
+		false,
+	},
+	{
+		"java-test",
+		"func",
+		"  kind: method_declaration\n  all:\n    - has:\n        field: name\n        pattern: $N\n    - has:\n        kind: modifiers\n        has:\n          any:\n            - kind: marker_annotation\n            - kind: annotation\n          regex: '" +
+		java_test_annotation +
+		"'\n",
+		"",
+		true,
+	},
+}
+
+@(private = "file")
 sh_top :: "  not:\n    inside:\n      kind: function_definition\n      stopBy: end\n"
 
 // Bash: functions in either spelling, and the assignments and
@@ -178,6 +233,17 @@ sh_rules := []Kind_Rule {
 // grammar fails on and the declaration it would otherwise have lost.
 sh_parse_error :: "sh-parse-error"
 
+// java_parse_error is the same error node, asked of the Java grammar, for
+// the same reason: a Java file the grammar cannot read is uncovered, not
+// read in part.
+java_parse_error :: "java-parse-error"
+
+// declined is whether a rule is a grammar's report that it could not
+// read a file, rather than a declaration.
+declined :: proc(rule: string) -> bool {
+	return rule == sh_parse_error || rule == java_parse_error
+}
+
 // rules_of is the kind rules a sidecar reads its language by.
 rules_of :: proc(sidecar: Sidecar) -> []Kind_Rule {
 	switch sidecar {
@@ -187,6 +253,8 @@ rules_of :: proc(sidecar: Sidecar) -> []Kind_Rule {
 		return rs_rules
 	case .Bash:
 		return sh_rules
+	case .Java:
+		return java_rules
 	case .Go, .Odin, .Script:
 	}
 	return nil
@@ -203,6 +271,8 @@ language_of :: proc(sidecar: Sidecar) -> string {
 		return "Rust"
 	case .Bash:
 		return "Bash"
+	case .Java:
+		return "Java"
 	case .Go, .Odin, .Script:
 	}
 	return ""
@@ -293,7 +363,7 @@ write_rules :: proc(sidecar: Sidecar, dir: string) -> bool {
 				) or_return
 			}
 		}
-	case .Python, .Rust, .Bash:
+	case .Python, .Rust, .Bash, .Java:
 		language := language_of(sidecar)
 		for r in rules_of(sidecar) {
 			write_rule(
@@ -307,13 +377,14 @@ write_rules :: proc(sidecar: Sidecar, dir: string) -> bool {
 				),
 			) or_return
 		}
-		if sidecar == .Bash {
+		if sidecar == .Bash || sidecar == .Java {
+			id := sh_parse_error if sidecar == .Bash else java_parse_error
 			write_rule(
 				dir,
-				sh_parse_error,
+				id,
 				fmt.tprintf(
 					"id: %s\nlanguage: %s\nseverity: info\nrule:\n  kind: ERROR\n",
-					sh_parse_error,
+					id,
 					language,
 				),
 			) or_return
@@ -345,7 +416,13 @@ Grep_Match :: struct {
 	} `json:"range"`,
 	meta:  struct {
 		single: map[string]struct {
-			text: string `json:"text"`,
+			text:  string `json:"text"`,
+			range: struct {
+				start: struct {
+					line:   int `json:"line"`,
+					column: int `json:"column"`,
+				} `json:"start"`,
+			} `json:"range"`,
 		} `json:"single"`,
 	} `json:"metaVariables"`,
 }
@@ -419,7 +496,7 @@ grep_scan :: proc(
 	// than none: the file is named as unread and nothing is taken from it.
 	unread := make([]bool, len(files), context.temp_allocator)
 	for m in matches {
-		if m.rule != sh_parse_error {
+		if !declined(m.rule) {
 			continue
 		}
 		if index, numbered := match_index(m, len(files)); numbered {
@@ -433,17 +510,23 @@ grep_scan :: proc(
 	}
 	// One declaration, several matches: the plain forms see the inner
 	// node of an export, and a test function is also a function. Keep the
-	// exported reading, and the test reading, of each line.
+	// exported reading, and the test reading, of each line. Where the
+	// name is bound, it is the name's place that tells declarations
+	// apart: a Java interface and its first method can share a line.
 	best := make(map[string]Grep_Match, context.temp_allocator)
 	for m in matches {
-		if m.rule == sh_parse_error {
+		if declined(m.rule) {
 			continue
 		}
 		index, numbered := match_index(m, len(files))
 		if !numbered || unread[index] {
 			continue
 		}
-		key := fmt.tprintf("%d:%d", index, m.range.start.line)
+		line, column := m.range.start.line, 0
+		if bound, found := m.meta.single["N"]; found && sidecar == .Java {
+			line, column = bound.range.start.line, bound.range.start.column
+		}
+		key := fmt.tprintf("%d:%d:%d", index, line, column)
 		if old, seen := best[key]; seen && !prefer(m.rule, old.rule) {
 			continue
 		}
@@ -545,8 +628,10 @@ read_match :: proc(
 			decl.exported = strings.has_prefix(strings.trim_space(m.text), "pub")
 		case .Bash:
 			decl.exported = true
-		case .Go, .Odin, .Script:
+		case .Go, .Odin, .Script, .Java:
 		}
+	case .Java:
+		return read_java(m, lines, allocator)
 	case .Go, .Odin:
 		return decl, false
 	}
@@ -556,6 +641,68 @@ read_match :: proc(
 	decl.doc = doc_above(lines, line, allocator)
 	decl.body = strings.clone(m.text, allocator)
 	return decl, true
+}
+
+// read_java reads a Java declaration from the name node its rule binds.
+// A Java declaration's match begins at its annotations, so the
+// declaration is placed on its name's line instead, which is the line a
+// change to its signature touches, and its body runs from that line; the
+// doc is the comment above the annotations. Its modifiers say its
+// audience — public or protected is exported — and a static field is
+// reported as a value, as Rust's statics are, rather than a field.
+read_java :: proc(
+	m: Grep_Match,
+	lines: []string,
+	allocator := context.allocator,
+) -> (
+	decl: Decl,
+	ok: bool,
+) {
+	rule, known := kind_rule(.Java, m.rule)
+	bound, found := m.meta.single["N"]
+	if !known || !found || bound.text == "" {
+		return decl, false
+	}
+	start := m.range.start.line
+	at := bound.range.start.line
+	// The match text up to the line the name sits on: its annotations,
+	// and any modifiers written on lines of their own.
+	head := m.text
+	for _ in start ..< at {
+		newline := strings.index_byte(head, '\n')
+		if newline < 0 {
+			return decl, false
+		}
+		head = head[newline + 1:]
+	}
+	modifiers := m.text[:len(m.text) - len(head)]
+	if at < len(lines) {
+		column := min(bound.range.start.column, len(lines[at]))
+		modifiers = strings.concatenate({modifiers, lines[at][:column]}, context.temp_allocator)
+		decl.text = strings.clone(strings.trim_space(lines[at]), allocator)
+	}
+	decl.name = strings.clone(bound.text, allocator)
+	decl.kind = rule.kind
+	decl.test = rule.test
+	decl.line = at + 1
+	decl.end_line = decl.line + strings.count(head, "\n")
+	decl.exported = has_match(`\b(?:public|protected)\b`, modifiers)
+	if rule.kind == "field" && has_match(`\bstatic\b`, modifiers) {
+		decl.kind = "value"
+	}
+	decl.doc = doc_above(lines, start + 1, allocator)
+	decl.body = strings.clone(strings.trim_left_space(head), allocator)
+	return decl, true
+}
+
+// has_match is whether a pattern matches anywhere in text.
+has_match :: proc(pattern, text: string) -> bool {
+	re, err := regex.create(pattern, {}, context.temp_allocator, context.temp_allocator)
+	if err != nil {
+		return false
+	}
+	_, matched := regex.match(re, text, context.temp_allocator)
+	return matched
 }
 
 kind_rule :: proc(sidecar: Sidecar, id: string) -> (Kind_Rule, bool) {

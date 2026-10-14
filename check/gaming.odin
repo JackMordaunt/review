@@ -9,6 +9,7 @@ import "core:strings"
 
 import "../change"
 import "../finding"
+import "../frontend"
 import "../txt"
 
 // rule_id is what a dismissal's rule id has to look like. The prose that
@@ -117,6 +118,8 @@ py_test           :: `^(?:async\s+)?def (test_\w+)\(`
 js_test_call      :: `^(?:Deno\.test|test|describe|it)(?:\.(?:skip|only|todo|fails|failing|ignore|concurrent|serial))*\(`
 rs_test_attribute :: `^\#\[[\w:]*test(\(|\])`
 rs_fn             :: `^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn (\w+)\(`
+java_annotation   :: `^@[\w.]+(?:\([^()]*\))?\s*`
+java_method       :: `^(?:(?:public|protected|private|static|final|abstract|synchronized|default)\s+)*(?:<[^>]*>\s*)?[\w.<>\[\]?,]+\s+(\w+)\s*\(`
 
 // check_deleted_tests reports the tests a change deletes. A test is never
 // heard from again once deleted, so deletion is where a test the reading
@@ -125,7 +128,9 @@ rs_fn             :: `^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn (\w+)\(`
 check_deleted_tests :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 	spoken := added_test_names(s.c.added, context.temp_allocator)
 	for file in sorted_keys(s.c.removed) {
-		if !is_test_file(file) && !strings.has_suffix(file, ".rs") {
+		if !is_test_file(file) &&
+		   !strings.has_suffix(file, ".rs") &&
+		   !strings.has_suffix(file, ".java") {
 			continue
 		}
 		removed := s.c.removed[file]
@@ -142,6 +147,11 @@ check_deleted_tests :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 						name = m[1]
 					}
 				}
+			}
+			if strings.has_suffix(file, ".java") {
+				// A Java test is the method a test annotation marks, and
+				// only that; a deleted helper beside it is not a test.
+				name = removed_java_test_name(removed[:], i)
 			}
 			if name == "" || seen[name] {
 				continue
@@ -200,6 +210,34 @@ removed_test_name :: proc(text: string) -> string {
 	return ""
 }
 
+// removed_java_test_name reads the name of the method a test annotation on
+// removed line i marks: on the annotation's own line, or on the first
+// line after it that is not another annotation.
+removed_java_test_name :: proc(removed: []string, i: int) -> string {
+	first := strings.trim_space(removed[i])
+	if _, ok := capture_end(frontend.java_test_annotation, first); !ok {
+		return ""
+	}
+	for j in i ..< min(i + 8, len(removed)) {
+		line := strings.trim_space(removed[j])
+		for {
+			end, ok := capture_end(java_annotation, line)
+			if !ok || end == 0 {
+				break
+			}
+			line = line[end:]
+		}
+		if line == "" {
+			continue
+		}
+		if m, ok := capture(java_method, line); ok {
+			return m[1]
+		}
+		return ""
+	}
+	return ""
+}
+
 // read_quoted reads the string literal a JS test registration is named
 // by, from the text that follows its opening parenthesis.
 read_quoted :: proc(text: string) -> string {
@@ -237,7 +275,7 @@ added_test_names :: proc(
 // added_test_name reads a test's name off an added line, in any runner's
 // shape, or nothing.
 added_test_name :: proc(trimmed: string) -> string {
-	for pattern in ([]string{go_test, py_test, rs_fn}) {
+	for pattern in ([]string{go_test, py_test, rs_fn, java_method}) {
 		if m, ok := capture(pattern, trimmed); ok {
 			return m[1]
 		}

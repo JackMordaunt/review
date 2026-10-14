@@ -100,6 +100,15 @@ assertless :: proc(t: change.Function) -> bool {
 			}
 		}
 		return true
+	case strings.has_suffix(t.file, ".java"):
+		// The shapes read are assert in any spelling — the keyword,
+		// assertEquals, assertThat — a mock verified, a throw, and fail.
+		for shape in ([]string{"assert", "fail(", "verify(", "throw ", "expectThrows("}) {
+			if strings.contains(body, shape) {
+				return false
+			}
+		}
+		return true
 	}
 	return false
 }
