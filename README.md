@@ -68,7 +68,7 @@ that loop end.
 - **Progress you can read.** `--baseline last.json` names which findings resolved, which persist, and which are new.
 - **Dismissals live in the source.** `//review:ignore <rule> <why>` beside the code it justifies, not in a config file. One added by the change under review is itself a must-fix.
 - **Advisory unless asked.** It never fails a build or blocks a commit until `--exit-code` says it should.
-- **Any model.** The console API, the `claude` or `pi` CLIs, or any command that reads a prompt and prints an answer.
+- **Any model.** The console API, the `claude`, `grok`, or `pi` CLIs, or any command that reads a prompt and prints an answer.
 - **Keeps itself current.** `review update` fetches a signed release. It never updates unasked.
 
 ## What a review costs

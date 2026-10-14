@@ -23,6 +23,14 @@ names_carry_the_model :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(
 		t,
+		name(Provider{kind = .Grok, model = "grok-4.7"}, context.temp_allocator),
+		"grok/grok-4.7",
+	)
+	g, ok_grok := build("grok", "", context.temp_allocator)
+	testing.expect(t, ok_grok)
+	testing.expect_value(t, g.model, default_grok_model)
+	testing.expect_value(
+		t,
 		name(Provider{kind = .Command, argv = {"echo", "x"}}, context.temp_allocator),
 		"command: echo x",
 	)
@@ -36,10 +44,12 @@ names_carry_the_model :: proc(t: ^testing.T) {
 @(test)
 the_chain_tries_the_assistant_between_api_and_gateway :: proc(t: ^testing.T) {
 	chain := default_chain(context.temp_allocator)
-	testing.expect_value(t, len(chain), 3)
+	testing.expect_value(t, len(chain), 4)
 	testing.expect_value(t, chain[0].provider.kind, Kind.Api)
 	testing.expect_value(t, chain[1].name, "claude/sonnet")
-	testing.expect_value(t, chain[2].provider.kind, Kind.Pi)
+	testing.expect_value(t, chain[2].provider.kind, Kind.Grok)
+	testing.expect_value(t, chain[2].name, "grok/grok-4.7")
+	testing.expect_value(t, chain[3].provider.kind, Kind.Pi)
 }
 
 @(test)
@@ -59,6 +69,25 @@ pi_answers_from_its_stream :: proc(t: ^testing.T) {
 		context.temp_allocator,
 	)
 	testing.expect_value(t, err, "rate limited")
+}
+
+@(test)
+grok_answers_from_its_envelope :: proc(t: ^testing.T) {
+	answer, err := read_grok(
+		`{"text":"{\"findings\":[]}","stopReason":"end_turn","usage":{"input_tokens":10,"output_tokens":2,"cache_read_input_tokens":1},"total_cost_usd":0.5}`,
+		context.temp_allocator,
+	)
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, answer.text, `{"findings":[]}`)
+	testing.expect_value(t, answer.tokens_in, 10)
+	testing.expect_value(t, answer.cached, 1)
+	testing.expect_value(t, answer.cost, 0.5)
+	_, err = read_grok(`{"type":"error","message":"Couldn't start session"}`, context.temp_allocator)
+	testing.expect_value(t, err, "Couldn't start session")
+	_, err = read_grok(`{"text":"","stopReason":"max_turn_requests"}`, context.temp_allocator)
+	testing.expect_value(t, err, "max_turn_requests")
+	_, err = read_grok("not json", context.temp_allocator)
+	testing.expect_value(t, err, "reading the answer: not the JSON envelope expected")
 }
 
 @(test)

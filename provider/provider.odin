@@ -12,6 +12,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:time"
+import "jm:path"
 import "jm:sh"
 
 // Answer is what a provider returned, with whatever it could say about
@@ -31,13 +32,15 @@ Answer :: struct {
 Kind :: enum {
 	Claude,
 	Pi,
+	Grok,
 	Api,
 	Command,
 }
 
 // Provider is one way of asking: the coding assistant claude in its
 // non-interactive mode, the assistant pi through one of its upstreams,
-// the console API directly, or whatever command the environment names.
+// the grok assistant on the path, the console API directly, or whatever
+// command the environment names.
 Provider :: struct {
 	kind:     Kind,
 	model:    string,
@@ -51,6 +54,14 @@ Provider :: struct {
 // first duplicate it finds rather than all of them.
 default_claude_model :: "sonnet"
 default_api_model    :: "claude-sonnet-5"
+default_grok_model   :: "grok-4.7"
+
+// Observed: an empty --tools is ignored, and a name grok does not know
+// restores the full set, which would let a review edit the tree under
+// always-approve. Naming one real tool makes the allowlist stick; denying
+// that same tool, and the MCP meta-tools an allowlist keeps, leaves none.
+grok_tools  :: "todo_write"
+grok_denied :: "todo_write,search_tool,use_tool,Agent"
 
 // build is the provider called by name, with the model given or its
 // default. The command provider reads its command line from REVIEW_COMMAND
@@ -67,6 +78,8 @@ build :: proc(which, model: string, allocator := context.allocator) -> (p: Provi
 				upstream = os.get_env("REVIEW_PI_PROVIDER", allocator),
 			},
 			true
+	case "grok":
+		return Provider{kind = .Grok, model = model if model != "" else default_grok_model}, true
 	case "api":
 		return Provider{kind = .Api, model = model if model != "" else default_api_model}, true
 	case "command":
@@ -87,6 +100,8 @@ name :: proc(p: Provider, allocator := context.allocator) -> string {
 	switch p.kind {
 	case .Claude:
 		return strings.concatenate({"claude/", p.model}, allocator)
+	case .Grok:
+		return strings.concatenate({"grok/", p.model}, allocator)
 	case .Pi:
 		parts := make([dynamic]string, context.temp_allocator)
 		append(&parts, "pi")
@@ -129,6 +144,8 @@ ask :: proc(
 		return ask_claude(p, system, user, allocator)
 	case .Pi:
 		return ask_pi(p, system, user, allocator)
+	case .Grok:
+		return ask_grok(p, system, user, allocator)
 	case .Api:
 		return ask_api(p, system, user, findings_tool, allocator)
 	case .Command:
@@ -322,6 +339,99 @@ spoken :: proc(out: string, allocator := context.allocator) -> (Answer, string) 
 		return {}, strings.clone(why if why != "" else "no assistant message in the answer", allocator)
 	}
 	return answer, ""
+}
+
+// ask_grok asks the grok assistant on the path. Its headless guide says a
+// prompt is not read from stdin, so the question is written to a file.
+// The tool flags leave none callable: these jobs are given everything
+// they may read, and a reader that goes looking for more is answering a
+// different question, with the tree open under the user's permission mode.
+ask_grok :: proc(
+	p: Provider,
+	system, user: string,
+	allocator := context.allocator,
+) -> (
+	Answer,
+	string,
+) {
+	dir, mk_err := path.temp_dir("review-grok-", context.temp_allocator)
+	if mk_err != nil {
+		return {}, "grok: could not make a prompt file"
+	}
+	defer os.remove_all(dir)
+	prompt := path.join(dir, "prompt", allocator = context.temp_allocator)
+	if os.write_entire_file(prompt, transmute([]byte)user) != nil {
+		return {}, "grok: could not write the prompt"
+	}
+	out, err := shell(
+		{
+			"grok",
+			"--prompt-file",
+			prompt,
+			"--model",
+			p.model,
+			"--output-format",
+			"json",
+			"--system-prompt-override",
+			system,
+			"--verbatim",
+			"--max-turns",
+			"1",
+			"--no-subagents",
+			"--disable-web-search",
+			"--tools",
+			grok_tools,
+			"--disallowed-tools",
+			grok_denied,
+		},
+		"",
+		context.temp_allocator,
+	)
+	if err != "" {
+		return {}, strings.clone(err, allocator)
+	}
+	return read_grok(out, allocator)
+}
+
+// Grok_Envelope is the headless JSON object: text, stopReason, usage, and
+// total_cost_usd. A failure is the same stream with type "error".
+// read_grok covers both.
+Grok_Envelope :: struct {
+	type:        string `json:"type"`,
+	message:     string `json:"message"`,
+	text:        string `json:"text"`,
+	stop_reason: string `json:"stopReason"`,
+	cost:        f64 `json:"total_cost_usd"`,
+	usage:       struct {
+		tokens_in:  int `json:"input_tokens"`,
+		tokens_out: int `json:"output_tokens"`,
+		cached:     int `json:"cache_read_input_tokens"`,
+	} `json:"usage"`,
+}
+
+// read_grok takes the answer out of grok's JSON object. Cost is left at
+// zero when the server did not stamp one; a missing cost is not a free ask.
+read_grok :: proc(out: string, allocator := context.allocator) -> (Answer, string) {
+	envelope: Grok_Envelope
+	if json.unmarshal_string(out, &envelope, allocator = context.temp_allocator) != nil {
+		return {}, "reading the answer: not the JSON envelope expected"
+	}
+	if envelope.type == "error" {
+		why := envelope.message if envelope.message != "" else "grok reported an error"
+		return {}, strings.clone(why, allocator)
+	}
+	if strings.trim_space(envelope.text) == "" {
+		why := envelope.stop_reason if envelope.stop_reason != "" else "answered nothing"
+		return {}, strings.clone(why, allocator)
+	}
+	return Answer {
+			text = strings.clone(envelope.text, allocator),
+			tokens_in = envelope.usage.tokens_in,
+			tokens_out = envelope.usage.tokens_out,
+			cached = envelope.usage.cached,
+			cost = envelope.cost,
+		},
+		""
 }
 
 // ask_command asks whatever the environment names, with the prompt on its

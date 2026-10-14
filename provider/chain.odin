@@ -17,7 +17,7 @@ Entry :: struct {
 }
 
 // default_chain is the configured preference: the direct API, then the
-// coding assistant on the path, then the local gateway as the reading of
+// coding assistants on the path, then the local gateway as the reading of
 // last resort. The order is a choice about where an answer is likeliest
 // to be had with the least fuss, not a claim about any of them; a probe
 // decides. REVIEW_MODEL re-points the first slot.
@@ -26,10 +26,11 @@ default_chain :: proc(allocator := context.temp_allocator) -> []Entry {
 	if model == "" {
 		model = default_api_model
 	}
-	entries := make([]Entry, 3, allocator)
+	entries := make([]Entry, 4, allocator)
 	entries[0] = Entry{strings.concatenate({"api/", model}, allocator), Provider{kind = .Api, model = model}}
 	entries[1] = Entry{strings.concatenate({"claude/", default_claude_model}, allocator), Provider{kind = .Claude, model = default_claude_model}}
-	entries[2] = Entry{"pi/maple/glm-5-3-flash", Provider{kind = .Pi, model = "glm-5-3-flash", upstream = "maple"}}
+	entries[2] = Entry{strings.concatenate({"grok/", default_grok_model}, allocator), Provider{kind = .Grok, model = default_grok_model}}
+	entries[3] = Entry{"pi/maple/glm-5-3-flash", Provider{kind = .Pi, model = "glm-5-3-flash", upstream = "maple"}}
 	return entries
 }
 
