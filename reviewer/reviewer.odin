@@ -84,11 +84,23 @@ Answer again, with one verdict per finding, as one JSON object and nothing else.
 // Reviewer is how the jobs are asked: the provider, whether to verify,
 // whether to narrate, and the cache to replay from.
 Reviewer :: struct {
-	provider: provider.Provider,
-	name:     string,
-	verify:   bool,
-	verbose:  bool,
-	cache:    ^cache.Cache,
+	provider:      provider.Provider,
+	name:          string,
+	verify:        bool,
+	verbose:       bool,
+	cache:         ^cache.Cache,
+	// An external exchange keeps job execution and verification in this engine.
+	exchange:      proc(
+		data: rawptr,
+		system, user: string,
+		verdict: bool,
+		verdict_count: int,
+		allocator: runtime.Allocator,
+	) -> (
+		provider.Answer,
+		string,
+	),
+	exchange_data: rawptr,
 }
 
 // Result is what a set of readings produced. The parts beyond the
@@ -298,10 +310,16 @@ answered :: proc(
 	system, user: string,
 	verdict: bool,
 	readable: proc(text: string) -> bool,
+	verdict_count := 0,
+	allocator := context.allocator,
 ) -> (
 	provider.Answer,
 	string,
 ) {
+	context.allocator = allocator
+	if r.exchange != nil {
+		return r.exchange(r.exchange_data, system, user, verdict, verdict_count, allocator)
+	}
 	if os.get_env("REVIEW_DEBUG_CACHE", context.temp_allocator) != "" {
 		fmt.eprintfln(
 			"cache key %s system=%d user=%d provider=%s",
@@ -534,7 +552,7 @@ verdicts :: proc(
 		{subject, "\n\nThe findings reported against it:\n\n", strings.to_string(listed)},
 		context.temp_allocator,
 	)
-	answer, err = answered(r, system, user, true, readable_verdicts)
+	answer, err = answered(r, system, user, true, readable_verdicts, len(indexes))
 	if err != "" {
 		return nil, answer, err
 	}
@@ -548,6 +566,7 @@ verdicts :: proc(
 			strings.concatenate({user, "\n\n", verdicts_again}, context.temp_allocator),
 			true,
 			readable_verdicts,
+			len(indexes),
 		)
 		if err != "" {
 			return nil, answer, err

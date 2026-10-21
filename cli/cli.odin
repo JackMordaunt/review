@@ -15,6 +15,11 @@ usage: review [flags] [rev]      the staged change, or a revision range
        review bench [-n N] [-author A] [-rule R] [--fresh] [root]
                                  the checks' fire rate over recent commits
        review doctor [--json] [--repo path]  local paths and capability diagnostics
+       review external prepare --repo DIR [--rev REV] [--jobs LIST]
+                                 export jobs without contacting a provider
+       review external submit --repo DIR   read an answer object from stdin
+       review external report --repo DIR --run ID  inspect an external run
+       review mcp --repo /absolute/repo  serve external jobs over stdio MCP
        review version            which release this is
        review update             fetch the latest release and replace these binaries
 

@@ -117,6 +117,10 @@ review HEAD^..HEAD              the last commit
 review --json                   one JSON object, for an agent
 review --repo "/path/to/repo"    review from outside the repository
 review doctor --json            local paths and capability diagnostics
+review external prepare --repo DIR  export jobs without a provider
+review external submit --repo DIR   accept an answer object from stdin
+review external report --repo DIR --run ID  inspect a saved external run
+review mcp --repo /absolute/repo    serve the same jobs over stdio MCP
 review --show                   what each job would be sent, and what the checks found
 review --fresh                  ask again rather than replay the cache
 review --exit-code              exit 1 when a must-fix finding stands, for a hook
@@ -140,6 +144,30 @@ repository root, executable paths, and API credential presence without printing
 credentials or probing authentication. Shipped sidecars are found beside the
 review executable first, then on PATH. Run `python3 tests/cli.py build/review`
 after building to check these contracts without a provider or network.
+
+## Use a connected assistant
+
+`review external prepare --repo DIR` runs the existing static checks and exports
+bounded review jobs without contacting a provider. Add `--rev REV` for a revision
+or `--jobs LIST` to select jobs. Submit each answer with
+`review external submit --repo DIR < answer.json`; the input has `version: 1`,
+`run_id`, `source_id`, `job_id`, `schema`, and `answer` (the answer JSON encoded as
+a string). Copy the identities and schema from the exported run and packet, then answer
+any returned verification jobs. `review external report --repo DIR --run ID`
+returns the run's current jobs and nested v1 report. Pending answers, missing
+verification, faults and unread source remain incomplete; an empty findings
+list alone is not a pass.
+
+`review mcp --repo /absolute/path/to/repository` exposes that engine to a local
+assistant over stdio. See [Desktop setup and protocol limits](docs/desktop.md).
+It supports MCP **2025-11-25** initialization; actual Desktop UI compatibility
+has not been tested.
+
+These commands are additive. Ordinary CLI reviews, providers, hooks and their
+answer cache retain their existing behavior. A connected Desktop assistant
+supplies answers for external runs; its subscription does not authenticate the
+ordinary provider-backed `review` or commit hook. External answers stay outside
+the provider answer cache.
 
 ## Give it to your agents
 
@@ -201,6 +229,18 @@ Needs [Odin](https://odin-lang.org), [Go](https://go.dev) and
 git clone --recursive https://mordaunt.dev/code/review && cd review
 just install
 ```
+
+Offline regression checks need Python 3 and Git on a POSIX host:
+
+```sh
+just test-desktop
+```
+
+This builds the release binaries, then runs `tests/cli.py` and
+`tests/desktop.py`. The CLI fixture uses POSIX `printf` and executable permissions;
+this recipe does not establish Windows runtime or Desktop UI compatibility.
+The release workflow runs it on native Linux and macOS targets; Windows still
+runs the package and installer tests.
 
 ## Learn more
 

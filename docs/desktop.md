@@ -47,6 +47,24 @@ Ask the connected assistant:
 `structuredContent` and JSON text content. Engine failures appear as tool errors.
 No tool executes a provider or requests sampling from the client.
 
+The [external protocol](../external/README.md) describes source identity,
+session limits and accepted answer schemas. Preparing again replaces the
+repository's active run. Restart the server after updating the binary, then
+prepare a new run.
+
+If the connector does not start, run
+`/absolute/path/to/review doctor --repo /absolute/path/to/repository --json`
+in a terminal. Check the reported Git root and sidecar paths, then confirm the
+Desktop configuration uses that same binary and repository. Doctor reports
+credential presence; it does not verify authentication. A provider login error
+from an ordinary review or commit hook is separate from this MCP connection.
+
+If a tool reports changed source or engine identity, prepare again with the
+current binary and source. If it reports a busy session, let the current
+operation finish before retrying. An incomplete report requires the remaining
+jobs or reported coverage failures to be resolved; reconnecting alone does not
+complete it.
+
 The server uses newline-delimited JSON-RPC on stdin/stdout; diagnostics go to
 stderr. A frame may contain at most 16 MiB before its newline. Oversized input
 receives an error and closes the server. Request IDs must be strings or signed

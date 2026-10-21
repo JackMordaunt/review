@@ -10,6 +10,8 @@ How `review` works, for people changing it or arguing with a finding. The
 | `review/` | the executable, review orchestration, `version` and `update` |
 | `cli/` | invocation parsing, typed requests and local doctor diagnostics |
 | `discovery/` | shipped sibling executables, then executable PATH fallback |
+| `external/` | persisted snapshot-bound jobs and submitted host answers, outside the provider cache |
+| `mcp/` | stdio JSON-RPC transport for the external engine |
 | `change/` | the change: its diff, its message, and what each file adds |
 | `tree/` | the repository as it stands at the end of the change |
 | `git/` | the questions asked of the git program: the diff, the history, one archive |
@@ -398,6 +400,32 @@ A finding with no symbol is told from its neighbours by its line; a deterministi
 check's message is part of what it is about — the coupled partner, the measured number
 — and stable, so it stays in. Two findings that still hash the same are told apart by a
 counter: `a1b2c3d4e5f6`, `a1b2c3d4e5f6-2`.
+
+## External runs and MCP
+
+The external engine reuses change gathering, static checks, job criteria,
+verification, suppression filtering and finding IDs. `external prepare` returns
+version 1, run/source identities, pending job packets and a nested v1 report.
+`external submit` accepts one versioned answer bound to that run, source, job and
+schema; `external report` inspects the saved run. A new prepare replaces the
+repository's active session. Source changes make the saved snapshot stale rather
+than reviewing a different change under the same identity. Pending first-pass or
+verification jobs, parse failures and unread source remain incomplete.
+
+The CLI and MCP adapter call the same engine. External answers are persisted
+separately from provider answers and do not populate the provider cache. MCP
+supports initialization revision **2025-11-25** with newline-delimited JSON-RPC
+on stdin/stdout and diagnostics on stderr. It fixes one absolute Git repository
+at startup; tools cannot switch repositories. [Desktop setup](docs/desktop.md)
+documents packet fields, limits and cancellation. Real Desktop UI compatibility
+remains untested.
+
+Normal review invocations, provider selection, commit hooks and provider caching
+retain their existing behavior. A Desktop host supplies inference for external
+runs; its subscription does not authenticate ordinary provider-backed reviews or
+hooks. `just test-desktop` builds release binaries and exercises the CLI/MCP
+boundary offline on POSIX hosts with Python 3 and Git; it does not exercise a
+Desktop application or prove Windows runtime compatibility.
 
 ## Who answers
 

@@ -9,6 +9,7 @@
 #   just test            every package's tests and the Go sidecar's
 #   just check           type-check for linux, darwin and windows, debug and release
 #   just test-installer  install.sh and install.ps1 against a fake release
+#   just test-desktop    offline CLI/MCP contracts on POSIX (Python 3 and Git)
 #   just install         put the four binaries on PATH
 #   just clean           remove build output
 
@@ -32,7 +33,7 @@ san := env("SAN", "-sanitize:address")
 # Windows refuses to run an output without its extension, and Odin will not
 # write one.
 exe := if os() == "windows" { ".exe" } else { "" }
-packages := "txt frontend git tree change finding report check analyser job provider cache reviewer hook bench"
+packages := "txt frontend git tree change finding report check analyser job provider cache reviewer external mcp hook bench"
 targets := "linux_amd64 darwin_arm64 windows_amd64"
 
 # `just` alone lists the recipes.
@@ -76,6 +77,12 @@ test: deps
         {{odin}} test $p {{flags}} {{san}} -out:build/test/$p{{exe}}
     done
     go vet ./... && go test ./...
+
+# Offline invocation and MCP contracts; POSIX fixtures use printf and chmod.
+# This exercises the wire protocol, not a Desktop application.
+test-desktop: release
+    python3 tests/cli.py build/review{{exe}}
+    python3 tests/desktop.py --binary build/review{{exe}}
 
 # Type-check both Odin binaries for every target, with and without -debug.
 check: deps

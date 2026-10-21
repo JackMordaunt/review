@@ -39,6 +39,8 @@ parse :: cli.parse
 json_failure :: cli.json_failure
 
 main :: proc() {
+	// Protocol stdout excludes debug allocator reports and update notices.
+	if code, selected := cli.run_protocol(os.args[1:]); selected {os.exit(code)}
 	// A debug build sets trace's assertion handler, and with
 	// REVIEW_DEBUG_ALLOC set runs under the collection's debug allocator
 	// and prints its report at exit; what the allocator detects is its own
