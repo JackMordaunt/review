@@ -63,6 +63,7 @@ checks :: proc() -> []Check {
 		check_borrowed_escape,
 		check_owning_copy,
 		check_partial_construction,
+		check_container_invalidation,
 		check_unreferenced,
 		check_code_without_tests,
 	}

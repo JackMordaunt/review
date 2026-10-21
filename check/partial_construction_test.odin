@@ -4,47 +4,7 @@ import "base:runtime"
 import "core:strings"
 import "core:testing"
 
-import "../change"
 import "../finding"
-
-@(private = "file")
-partial_construction_lines :: proc(src: string) -> []int {
-	text := strings.split(src, "\n", context.temp_allocator)
-	if len(text) > 0 && text[len(text) - 1] == "" {
-		text = text[:len(text) - 1]
-	}
-	out := make([]int, len(text), context.temp_allocator)
-	for i in 0 ..< len(text) {
-		out[i] = i + 1
-	}
-	return out
-}
-
-@(private = "file")
-partial_construction_marker_line :: proc(src, marker: string) -> int {
-	text := strings.split(src, "\n", context.temp_allocator)
-	for line, i in text {
-		if strings.contains(line, marker) {
-			return i + 1
-		}
-	}
-	return 0
-}
-
-@(private = "file")
-partial_construction_scope :: proc(path, src: string, lines: []int) -> Scope {
-	c := new(change.Change, context.temp_allocator)
-	c.added = make(map[string][dynamic]change.Diff_Line, context.temp_allocator)
-	text := strings.split(src, "\n", context.temp_allocator)
-	added := make([dynamic]change.Diff_Line, context.temp_allocator)
-	for n in lines {
-		append(&added, change.Diff_Line{n, text[n - 1]})
-	}
-	c.added[path] = added
-	sources := make(map[string][]byte, context.temp_allocator)
-	sources[path] = transmute([]byte)src
-	return Scope{c = c, sources = sources}
-}
 
 @(test)
 partial_construction_failure_return :: proc(t: ^testing.T) {
@@ -346,18 +306,18 @@ partial_construction_failure_return :: proc(t: ^testing.T) {
 		}
 		lines := c.lines
 		if lines == nil {
-			lines = partial_construction_lines(c.src)
+			lines = source_every_line(c.src)
 		}
 		if c.name == "only the allocation is new" {
-			lines = []int{partial_construction_marker_line(c.src, "#fail")}
+			lines = []int{source_line(c.src, "#fail")}
 		}
 		got := collect(
-			partial_construction_scope(c.path, c.src, lines),
+			scope_from_source(c.path, c.src, lines),
 			check_partial_construction,
 			context.temp_allocator,
 		)
 		testing.expectf(t, len(got) == c.want, "%s: got %v, want %d", c.name, got, c.want)
-		marked := partial_construction_marker_line(c.src, "#fail")
+		marked := source_line(c.src, "#fail")
 		for f in got {
 			testing.expect_value(t, f.rule, "odin-partial-construction")
 			testing.expect_value(t, f.severity, finding.Severity.Must_Fix)
@@ -373,7 +333,7 @@ partial_construction_failure_return :: proc(t: ^testing.T) {
 	skipped := "package a\nbuild :: proc() -> (ok: bool) {\n\tp := new(int, runtime.heap_allocator())\n\t_ = step() or_return\n\treturn p != nil\n}\n" +
 		TAIL
 	got := collect(
-		partial_construction_scope("a_test.odin", skipped, partial_construction_lines(skipped)),
+		scope_from_source("a_test.odin", skipped, source_every_line(skipped)),
 		check_partial_construction,
 		context.temp_allocator,
 	)
@@ -499,7 +459,7 @@ partial_construction_message_outlives_scratch :: proc(t: ^testing.T) {
 	}
 
 	src := "package a\nbuild :: proc() -> (ok: bool) {\n\tp := new(int, runtime.heap_allocator())\n\t_ = step() or_return\n\treturn p != nil\n}\nstep :: proc() -> bool { return false }\n"
-	scope := partial_construction_scope("a.odin", src, partial_construction_lines(src))
+	scope := scope_from_source("a.odin", src, source_every_line(src))
 	out := make([dynamic]finding.Finding)
 	check_partial_construction(scope, &out)
 	restored :=

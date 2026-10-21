@@ -167,6 +167,10 @@ rules := []Rule {
 		"an Odin procedure acquires explicit heap storage and a later checked failure returns without cleanup or ownership transfer; uncertain allocators, calls, aliases and paths are spared",
 	},
 	{
+		"odin-container-invalidation",
+		"a local pointer or slice into an Odin dynamic array is used after growth that may move its storage; sufficient capacity, refreshed borrows, uncertain calls and observed growth results are spared",
+	},
+	{
 		"odin-main-location",
 		"an added Odin package main declaration lies outside the repository's cmd subtree",
 	},

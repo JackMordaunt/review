@@ -77,6 +77,16 @@ concrete operation, its use and lifetime, and a workable correction.
   Do not repeat explicit-heap new/make failure paths reported by
   `odin-partial-construction`, or incomplete destruction of a finished object
   covered by `odin-destroy-incomplete`.
+- `odin-container-invalidation-indirect` — report must-fix when the shown
+  code establishes a live pointer, slice or string into container storage,
+  an intervening operation that can invalidate it, and a later use of the
+  stale reference. Resolve helper, deferred or conditional mutation contracts
+  from supplied evidence. Establish the growth path; a failed growth operation
+  may preserve the old storage. Sufficient capacity, fixed-capacity containers,
+  deep copies, refreshed references and borrows never used again are safe.
+  Unknown mutation or aliasing is not a finding. Do not repeat local growth
+  and stale-use patterns covered by `odin-container-invalidation`, or lifetime
+  violations already covered by the borrowed-memory and owning-copy rules.
 - `odin-thick-entrypoint` — the main package in a cmd subtree only bootstraps context and
   debug allocator tracking where appropriate, delegates to other packages, then
   handles shutdown or exit. Report application logic or argument dispatch in main
