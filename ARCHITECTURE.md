@@ -136,6 +136,7 @@ noise on any struct not on a hot path.
 | `odin-allocator-parameter` | changed Odin procedures calling new, make on literal container types, or calls passed a context allocator | does the signature expose an allocator parameter so callers can override allocation? Hidden callee contracts and bypassed parameters belong to the odin inference job |
 | `odin-borrowed-escape` | changed Odin returns and local slice/string aliases of fixed arrays | does returned storage end with the procedure? Pointer mutations discard uncertain aliases; retained arguments and reset/freed owners remain inference cases |
 | `odin-owning-copy` | local nonempty dynamic arrays and maps made with an explicit heap allocator, copies and deletes | do two local headers free the same allocation on one path? Unknown ownership, calls and allocator behavior remain outside static proof |
+| `odin-partial-construction` | explicit heap new/make followed by a checked failure return | does the path release or transfer the resource? Uncertain calls, aliases and allocator lifetimes remain inference cases |
 | `odin-main-location` | added Odin package declarations | is a main package outside the repository's cmd subtree? |
 | `odin-cli-package` | added cli package declarations and all repository package directories | does more than one directory declare package cli? |
 | `odin-cli-parsing` | added core:flags.parse calls, resolved through unshadowed import aliases | is command-line parsing outside package cli? |

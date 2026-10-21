@@ -62,6 +62,7 @@ checks :: proc() -> []Check {
 		check_allocator_parameter,
 		check_borrowed_escape,
 		check_owning_copy,
+		check_partial_construction,
 		check_unreferenced,
 		check_code_without_tests,
 	}

@@ -67,6 +67,16 @@ concrete operation, its use and lifetime, and a workable correction.
   Do not repeat the direct explicit-heap container copy-and-delete pattern
   reported by `odin-owning-copy`, missing allocator parameters, or missing
   cleanup of fields already covered by `odin-destroy-incomplete`.
+- `odin-partial-construction-inferred` — report must-fix when a procedure
+  acquires a resource, a later construction step fails, and that failure path
+  neither releases the resource nor transfers ownership. Establish the actual
+  acquisition and release contracts, including handles, helper calls and arenas.
+  Account for defer, cleanup helpers, named return values, out-parameters and
+  whole-arena cleanup. Unknown ownership or allocator lifetime is not proof.
+  Name the acquisition and failure path and identify where cleanup belongs.
+  Do not repeat explicit-heap new/make failure paths reported by
+  `odin-partial-construction`, or incomplete destruction of a finished object
+  covered by `odin-destroy-incomplete`.
 - `odin-thick-entrypoint` — the main package in a cmd subtree only bootstraps context and
   debug allocator tracking where appropriate, delegates to other packages, then
   handles shutdown or exit. Report application logic or argument dispatch in main

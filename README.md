@@ -101,7 +101,9 @@ and release use matching allocators, respecting containers that retain theirs.
 Borrowed-memory checks catch local array slices and strings that escape their
 storage, with inference for other proven lifetime violations. Owning-copy checks
 catch two local headers freeing the same explicitly heap-allocated container;
-inference covers other established ownership violations. A 512-byte environment
+inference covers other established ownership violations. Partial-construction
+checks catch heap storage lost on later failure returns; inference covers
+other resources with established acquisition and cleanup contracts. A 512-byte environment
 buffer is a use-case assumption; replacements must preserve overflow handling
 and keep borrowed strings within the buffer's lifetime.
 
