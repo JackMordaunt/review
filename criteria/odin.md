@@ -56,6 +56,17 @@ concrete operation, its use and lifetime, and a workable correction.
   Copies, enduring storage and unknown ownership do not trigger this rule.
   Do not repeat local-array slice/string returns reported by
   `odin-borrowed-escape`; this rule covers the remaining proven lifetime cases.
+- `odin-owning-copy-inferred` — report must-fix when the shown code establishes
+  shared owning storage and independent destruction or reallocating mutation
+  through its copies. Name the allocation, both owners and the operation that
+  frees or invalidates shared storage. This includes owning structs and ownership
+  crossing a call when the relevant release contract is supplied. Unknown
+  ownership or unknown release behavior is not a finding. Borrowed views, deep
+  copies, explicit ownership transfer, cleared extra headers, exclusive cleanup
+  paths and known no-op arena releases do not establish double destruction.
+  Do not repeat the direct explicit-heap container copy-and-delete pattern
+  reported by `odin-owning-copy`, missing allocator parameters, or missing
+  cleanup of fields already covered by `odin-destroy-incomplete`.
 - `odin-thick-entrypoint` — the main package in a cmd subtree only bootstraps context and
   debug allocator tracking where appropriate, delegates to other packages, then
   handles shutdown or exit. Report application logic or argument dispatch in main

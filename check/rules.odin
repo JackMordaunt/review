@@ -159,6 +159,10 @@ rules := []Rule {
 		"a changed Odin return or aliasing assignment returns a slice or string backed by a local fixed array; proven local aliases are followed, while unknown ownership and possible pointer mutations are spared",
 	},
 	{
+		"odin-owning-copy",
+		"a nonempty Odin dynamic array or map made with an explicit heap allocator is copied to another local and both headers are deleted on one path; uncertain calls, mutations, allocators and element sizes are spared",
+	},
+	{
 		"odin-main-location",
 		"an added Odin package main declaration lies outside the repository's cmd subtree",
 	},

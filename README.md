@@ -99,7 +99,9 @@ entry points that should delegate their logic, and allocator parameters that
 make allocation visible and caller-controlled. It also checks that allocation
 and release use matching allocators, respecting containers that retain theirs.
 Borrowed-memory checks catch local array slices and strings that escape their
-storage, with inference for other proven lifetime violations. A 512-byte environment
+storage, with inference for other proven lifetime violations. Owning-copy checks
+catch two local headers freeing the same explicitly heap-allocated container;
+inference covers other established ownership violations. A 512-byte environment
 buffer is a use-case assumption; replacements must preserve overflow handling
 and keep borrowed strings within the buffer's lifetime.
 
