@@ -2,7 +2,6 @@ package check
 
 import "core:fmt"
 import "core:odin/ast"
-import "core:odin/parser"
 import "core:strings"
 
 import "../finding"
@@ -25,7 +24,7 @@ check_odin_structure :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 		if !strings.has_suffix(path, ".odin") || is_test_file(path) {
 			continue
 		}
-		file := odin_structure_parse(path, string(s.sources[path]))
+		file := parse_odin_source(path, string(s.sources[path]))
 		if file == nil || file.pkg_decl == nil {
 			continue
 		}
@@ -117,19 +116,6 @@ check_odin_structure :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 			}
 		}
 	}
-}
-
-@(private = "file")
-odin_structure_parse :: proc(path, src: string) -> ^ast.File {
-	context.allocator = context.temp_allocator
-	file := new(ast.File)
-	file.fullpath, file.src = path, src
-	p := parser.default_parser()
-	p.err, p.warn = nil, nil
-	if !parser.parse_file(&p, file) {
-		return nil
-	}
-	return file
 }
 
 @(private = "file")

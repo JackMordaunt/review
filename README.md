@@ -97,7 +97,9 @@ command-line parsing belongs to one `cli` package. A focused `odin` job
 judges avoidable allocations, temporary strings that can use stack buffers,
 entry points that should delegate their logic, and allocator parameters that
 make allocation visible and caller-controlled. It also checks that allocation
-and release use matching allocators, respecting containers that retain theirs. A 512-byte environment
+and release use matching allocators, respecting containers that retain theirs.
+Borrowed-memory checks catch local array slices and strings that escape their
+storage, with inference for other proven lifetime violations. A 512-byte environment
 buffer is a use-case assumption; replacements must preserve overflow handling
 and keep borrowed strings within the buffer's lifetime.
 

@@ -47,6 +47,15 @@ concrete operation, its use and lifetime, and a workable correction.
   This inference rule does not repeat missing-parameter or avoidable-allocation
   findings; it concerns mismatched allocator use even when allocation is needed
   and the signature already exposes an allocator.
+- `odin-borrowed-retention` — report must-fix when the shown code proves a
+  pointer, slice or string outlives its backing storage: a returned stack
+  pointer, a retained argument with an established retention contract, or a
+  borrow used after its exact owner is freed or its temporary allocator resets.
+  A callee name alone does not prove retention. A temporary allocation returned
+  without a reset here is not automatically dangling; establish the lifetime.
+  Copies, enduring storage and unknown ownership do not trigger this rule.
+  Do not repeat local-array slice/string returns reported by
+  `odin-borrowed-escape`; this rule covers the remaining proven lifetime cases.
 - `odin-thick-entrypoint` — the main package in a cmd subtree only bootstraps context and
   debug allocator tracking where appropriate, delegates to other packages, then
   handles shutdown or exit. Report application logic or argument dispatch in main
