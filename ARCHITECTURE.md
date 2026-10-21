@@ -42,6 +42,11 @@ owns.
 | `hygiene` | the commit message, the file statistics, recent subjects | does the message match the commit? |
 | `odin` | changed Odin procedures with package context | can allocations be avoided safely and overridden through parameters, are entry points thin, and does one `cli` package own argument parsing? |
 
+The Odin reading follows allocator identity through the shown operations.
+A changed context alone does not make a dynamic array or map release invalid:
+those containers retain their allocator. Unknown allocator identity produces no
+mismatch finding.
+
 The candidate list the `duplication` job judges is built by parsing the repository, not
 by searching it. A pattern over lines misses an indented constant inside a block, which
 is exactly where a duplicated fact tends to live. The list is ranked: names sharing more

@@ -33,6 +33,20 @@ concrete operation, its use and lifetime, and a workable correction.
   work to a helper with an allocator parameter. Report a demonstrated contract
   violation as must-fix. Explicit allocation without an allocator parameter is
   already checked by `odin-allocator-parameter`; do not duplicate that finding.
+- `odin-allocator-consistency` — storage must be freed or resized with the
+  allocator that allocated it. Report must-fix only when the shown allocation,
+  release or resize, and allocator values establish a mismatch for the same
+  object. Follow explicit arguments, context changes and simple allocator copies;
+  different identifier names or context fields alone do not prove inequality.
+  Dynamic arrays, maps and dynamic SOA containers retain their allocator, so a
+  later context change does not retarget their delete, reserve or resize.
+  Pointer, slice and string releases may instead use an explicit allocator or
+  the current context. Resolve the actual operation; do not guess an overload
+  or treat a shadowed builtin as the runtime operation. Unknown identity is not
+  a finding, and free_all is an allocator reset rather than an object's free.
+  This inference rule does not repeat missing-parameter or avoidable-allocation
+  findings; it concerns mismatched allocator use even when allocation is needed
+  and the signature already exposes an allocator.
 - `odin-thick-entrypoint` — the main package in a cmd subtree only bootstraps context and
   debug allocator tracking where appropriate, delegates to other packages, then
   handles shutdown or exit. Report application logic or argument dispatch in main
