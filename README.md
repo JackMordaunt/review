@@ -61,7 +61,7 @@ reporting what another job owns.
 An agent's loop is review, fix, review again. Everything here exists to make
 that loop end.
 
-- **Comparisons before judgement.** Twenty-nine checks of its own, and the repository's own compilers and linters, run before any model is asked, and still run when none can be.
+- **Comparisons before judgement.** Deterministic checks of its own, and the repository's own compilers and linters, run before any model is asked, and still run when none can be.
 - **Every finding cites a rule.** A finding that cites none is dropped before you see it. `review rules <rule>` prints what it was judged against.
 - **A second reading.** Each finding is read again with its evidence. One that falls is reported as retracted, with the reason, never silently dropped.
 - **The same answer twice.** Answers are cached by the exact question asked, so an unchanged change replays and costs nothing. Ids hash what a finding is about, not where it sits, so they survive edits.
@@ -83,7 +83,7 @@ are what cost money, measured over one job on a seven-file commit:
 | `api` | a fraction of a cent |
 | replayed from the cache | nothing |
 
-A whole change, all five jobs, is a few times that. The gap between `claude` and `api` is the assistant's own harness, about
+A whole change runs several jobs and costs a few times that. The gap between `claude` and `api` is the assistant's own harness, about
 22,000 tokens a call, which these jobs do not use. The default model is the
 middle one on purpose: the smallest found about two thirds of the wanted
 duplicates, and never both halves of a pair in one reading.
@@ -91,6 +91,14 @@ duplicates, and never both halves of a pair in one reading.
 A check that fires on everything is noise, so each one's fire rate is
 measured rather than assumed. `review bench -n 500` runs them over your last
 500 commits; `-rule <id>` lists the commits one rule fired on.
+
+Odin reviews also check that `main` packages live under `cmd/` and that
+command-line parsing belongs to one `cli` package. A focused `odin` job
+judges avoidable allocations, temporary strings that can use stack buffers,
+entry points that should delegate their logic, and allocator parameters that
+make allocation visible and caller-controlled. A 512-byte environment
+buffer is a use-case assumption; replacements must preserve overflow handling
+and keep borrowed strings within the buffer's lifetime.
 
 ## Use
 

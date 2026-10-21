@@ -32,7 +32,7 @@ Job :: struct {
 
 // all is the readings, in the order their findings are worth having.
 all :: proc(allocator := context.temp_allocator) -> []Job {
-	jobs := make([]Job, 5, allocator)
+	jobs := make([]Job, 6, allocator)
 	jobs[0] = Job {
 		"duplication",
 		#load("../criteria/duplication.md", string),
@@ -43,6 +43,7 @@ all :: proc(allocator := context.temp_allocator) -> []Job {
 	jobs[2] = Job{"namer", #load("../criteria/namer.md", string), namer_subject, true}
 	jobs[3] = Job{"claims", #load("../criteria/claims.md", string), claims_subject, true}
 	jobs[4] = Job{"hygiene", #load("../criteria/hygiene.md", string), hygiene_subject, false}
+	jobs[5] = Job{"odin", #load("../criteria/odin.md", string), odin_subject, true}
 	return jobs
 }
 
@@ -63,7 +64,7 @@ chosen :: proc(only: string, allocator := context.temp_allocator) -> (jobs: []Jo
 		}
 		if !found {
 			return nil, fmt.aprintf(
-				"no job called %q; the jobs are claims, duplication, hygiene, namer, tests",
+				"no job called %q; the jobs are claims, duplication, hygiene, namer, odin, tests",
 				want,
 				allocator = allocator,
 			)
@@ -221,7 +222,7 @@ tests_subject :: proc(c: ^change.Change, allocator: runtime.Allocator) -> string
 // The bounds on what the tests job is shown of the code under test: how
 // many functions, and how long each may be before it is cut.
 called_functions :: 8
-called_lines     :: 60
+called_lines :: 60
 
 // functions_under_test renders the functions the tests call, found by
 // name in the repository's index, so that whether a test would pass on a
@@ -355,6 +356,62 @@ comment_blocks :: proc(
 		append(&blocks, current[:])
 	}
 	return blocks[:]
+}
+
+// odin_subject gives semantic rules whole changed procedures, including edits
+// inside existing declarations. Added lines select the bodies; the index supplies
+// their surrounding control flow and return lifetime.
+odin_subject :: proc(c: ^change.Change, allocator: runtime.Allocator) -> string {
+	b := strings.builder_make(allocator)
+	for d in c.index {
+		if !strings.has_suffix(d.file, ".odin") ||
+		   check.is_test_file(d.file) ||
+		   d.kind != "func" ||
+		   d.body == "" {
+			continue
+		}
+		in_part := false
+		for file in c.files {
+			if file == d.file {
+				in_part = true
+				break
+			}
+		}
+		if !in_part {
+			continue
+		}
+		added, has_added := c.added[d.file]
+		if !has_added {
+			continue
+		}
+		end := d.line + strings.count(d.body, "\n")
+		touched := false
+		for line in added {
+			if line.line >= d.line && line.line <= end {
+				touched = true
+				break
+			}
+		}
+		if !touched {
+			continue
+		}
+		fmt.sbprintf(&b, "--- %s:%d %s\n", d.file, d.line, d.name)
+		if pkg := c.packages[d.file]; pkg != "" {
+			fmt.sbprintf(&b, "package: %s\n", pkg)
+		}
+		imports := c.imports[d.file]
+		for imported in imports {
+			fmt.sbprintf(&b, "import: %s\n", imported)
+		}
+		fmt.sbprintf(&b, "%s\nAdded lines in this procedure:\n", d.body)
+		for line in added {
+			if line.line >= d.line && line.line <= end {
+				fmt.sbprintf(&b, "%d: %s\n", line.line, line.text)
+			}
+		}
+		strings.write_string(&b, "\n")
+	}
+	return strings.to_string(b)
 }
 
 hygiene_subject :: proc(c: ^change.Change, allocator: runtime.Allocator) -> string {

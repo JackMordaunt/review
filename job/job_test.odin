@@ -15,7 +15,7 @@ dyn :: proc(items: []$T) -> [dynamic]T {
 @(test)
 jobs_carry_their_criteria :: proc(t: ^testing.T) {
 	jobs := all(context.temp_allocator)
-	testing.expect_value(t, len(jobs), 5)
+	testing.expect_value(t, len(jobs), 6)
 	for j in jobs {
 		testing.expectf(t, len(rules(j.criteria)) >= 4, "%s cites too few rules", j.name)
 		testing.expect(t, strings.contains(j.criteria, "- `"))
@@ -197,11 +197,30 @@ parts_cut_a_large_subject_by_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(parts(j, &small, context.temp_allocator)), 1)
 	// A file the job reads nothing from is in no part: the tests job
 	// reads a test file, the namer does not.
-	tests_only := change.Change{files = {"a.go", "a_test.go"}}
+	tests_only := change.Change {
+		files = {"a.go", "a_test.go"},
+	}
 	tests_only.symbols = make([dynamic]change.Symbol)
-	append(&tests_only.symbols, change.Symbol{name = "S", kind = "func", file = "a.go", line = 1, signature = strings.repeat("x", 17000)})
+	append(
+		&tests_only.symbols,
+		change.Symbol {
+			name = "S",
+			kind = "func",
+			file = "a.go",
+			line = 1,
+			signature = strings.repeat("x", 17000),
+		},
+	)
 	tests_only.tests = make([dynamic]change.Function)
-	append(&tests_only.tests, change.Function{name = "TestS", file = "a_test.go", line = 1, body = strings.repeat("y", 17000)})
+	append(
+		&tests_only.tests,
+		change.Function {
+			name = "TestS",
+			file = "a_test.go",
+			line = 1,
+			body = strings.repeat("y", 17000),
+		},
+	)
 	namer_pieces := parts(all(context.temp_allocator)[2], &tests_only, context.temp_allocator)
 	testing.expect_value(t, len(namer_pieces), 1)
 	if len(namer_pieces) == 1 {
@@ -209,11 +228,92 @@ parts_cut_a_large_subject_by_file :: proc(t: ^testing.T) {
 		testing.expect_value(t, namer_pieces[0].files[0], "a.go")
 	}
 	for piece in namer_pieces {
-		testing.expect(t, strings.trim_space(all(context.temp_allocator)[2].subject(piece, context.temp_allocator)) != "", "an empty part is never asked")
+		testing.expect(
+			t,
+			strings.trim_space(
+				all(context.temp_allocator)[2].subject(piece, context.temp_allocator),
+			) !=
+			"",
+			"an empty part is never asked",
+		)
 	}
 	tests_pieces := parts(all(context.temp_allocator)[1], &tests_only, context.temp_allocator)
 	testing.expect_value(t, len(tests_pieces), 1)
 	if len(tests_pieces) == 1 {
 		testing.expect_value(t, tests_pieces[0].files[0], "a_test.go")
 	}
+}
+
+@(test)
+odin_subject_reads_changed_bodies_and_respects_parts :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	c := change.Change {
+		files = {"domain/read.odin", "cmd/tool/main.odin", "other.go", "domain/read_test.odin", "domain/deleted.odin"},
+		index = {
+			{
+				name = "read",
+				kind = "func",
+				file = "domain/read.odin",
+				line = 3,
+				body = "read :: proc() {\n value := lookup()\n consume(value)\n}",
+			},
+			{
+				name = "unchanged",
+				kind = "func",
+				file = "domain/read.odin",
+				line = 12,
+				body = "unchanged :: proc() {}",
+			},
+			{
+				name = "main",
+				kind = "func",
+				file = "cmd/tool/main.odin",
+				line = 2,
+				body = "main :: proc() {\n cli.run()\n}",
+			},
+			{
+				name = "deleted_only",
+				kind = "func",
+				file = "domain/deleted.odin",
+				line = 2,
+				body = "deleted_only :: proc() {}",
+			},
+			{name = "other", kind = "func", file = "other.go", line = 1, body = "func other() {}"},
+			{
+				name = "test",
+				kind = "func",
+				file = "domain/read_test.odin",
+				line = 1,
+				body = "test :: proc() {}",
+			},
+		},
+	}
+	c.added = make(map[string][dynamic]change.Diff_Line)
+	c.added["domain/read.odin"] = dyn([]change.Diff_Line{{line = 4, text = " value := lookup()"}})
+	c.added["cmd/tool/main.odin"] = dyn([]change.Diff_Line{{line = 3, text = " cli.run()"}})
+	c.added["other.go"] = dyn([]change.Diff_Line{{line = 1, text = "func other() {}"}})
+	c.added["domain/read_test.odin"] = dyn(
+		[]change.Diff_Line{{line = 1, text = "test :: proc() {}"}},
+	)
+	c.imports = make(map[string][]string)
+	c.imports["domain/read.odin"] = {"core:os"}
+	c.packages = make(map[string]string)
+	c.packages["domain/read.odin"] = "domain"
+	got := odin_subject(&c, context.temp_allocator)
+	for want in ([]string{"domain/read.odin:3 read", "package: domain", "import: core:os", "consume(value)", "4:  value := lookup()", "cmd/tool/main.odin:2 main"}) {
+		testing.expectf(t, strings.contains(got, want), "missing %q in %s", want, got)
+	}
+	for absent in ([]string{"unchanged", "other.go", "read_test.odin", "deleted_only"}) {
+		testing.expectf(t, !strings.contains(got, absent), "unexpected %q in %s", absent, got)
+	}
+	piece := part(&c, []string{"cmd/tool/main.odin"}, context.temp_allocator)
+	got = odin_subject(piece, context.temp_allocator)
+	testing.expect(t, strings.contains(got, "cli.run()"))
+	testing.expect(
+		t,
+		!strings.contains(got, "lookup()"),
+		"shared index must not leak bodies from other parts",
+	)
+	empty := change.Change{}
+	testing.expect_value(t, odin_subject(&empty, context.temp_allocator), "")
 }

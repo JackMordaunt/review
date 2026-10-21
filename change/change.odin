@@ -113,6 +113,7 @@ Change :: struct {
 	tests:      [dynamic]Function,
 	comments:   [dynamic]Located,
 	imports:    map[string][]string,
+	packages:   map[string]string,
 	// uncovered are the code files no sidecar read, with a reason each.
 	uncovered:  [dynamic]Gap,
 	// shell is the dialect of each changed file that is a shell script,
@@ -789,6 +790,10 @@ read_file :: proc(c: ^Change, t: tree.Tree, name: string, file: frontend.File) {
 	for l in added {
 		touched[l.line] = true
 	}
+	if c.packages == nil {
+		c.packages = make(map[string]string)
+	}
+	c.packages[name] = strings.clone(file.pkg)
 	c.imports[name] = clone_all(file.imports)
 	for decl in file.decls {
 		if decl.kind == "field" {

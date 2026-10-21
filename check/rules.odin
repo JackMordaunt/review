@@ -151,6 +151,22 @@ rules := []Rule {
 		"an added Odin line allocates from the temp allocator inside a loop that no guard, begin or free_all in it resets: growth no leak check sees",
 	},
 	{
+		"odin-allocator-parameter",
+		"a changed Odin procedure calls builtin new, makes a literal slice, dynamic array or map, or passes a context allocator to a call without exposing an allocator parameter; typed and defaulted allocator parameters are allowed",
+	},
+	{
+		"odin-main-location",
+		"an added Odin package main declaration lies outside the repository's cmd subtree",
+	},
+	{
+		"odin-cli-package",
+		"an added Odin package cli declaration creates or extends a second cli package directory in the repository",
+	},
+	{
+		"odin-cli-parsing",
+		"an added call to core:flags.parse lies outside package cli; import aliases are recognized and shadowed names are spared",
+	},
+	{
 		"new-symbol-unreferenced",
 		"nothing in the repository refers to a new declaration but its own line",
 	},

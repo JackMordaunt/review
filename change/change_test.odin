@@ -124,6 +124,8 @@ gather_reads_a_range_through_the_sidecar :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.symbols[0].doc, "added is new.")
 	testing.expect_value(t, c.symbols[0].body, "func added() {}")
 	testing.expect_value(t, c.symbols[0].pkg, "a")
+	testing.expect_value(t, c.packages["a.go"], "a")
+	testing.expect_value(t, c.packages["a_test.go"], "a")
 	testing.expect_value(t, len(c.tests), 1)
 	testing.expect_value(t, c.tests[0].name, "TestAdded")
 	testing.expect_value(t, c.tests[0].body, "func TestAdded(t *testing.T) {\n\tadded()\n}")

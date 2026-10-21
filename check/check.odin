@@ -58,6 +58,8 @@ checks :: proc() -> []Check {
 		check_swallowed_errors,
 		check_destroy_incomplete,
 		check_temp_in_loop,
+		check_odin_structure,
+		check_allocator_parameter,
 		check_unreferenced,
 		check_code_without_tests,
 	}

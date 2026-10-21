@@ -40,6 +40,7 @@ owns.
 | `namer` | new and renamed declarations, with their doc comments | does the name say what the thing is? |
 | `claims` | comment lines the change adds, in their blocks, with the code beneath each | does anything support this assertion? |
 | `hygiene` | the commit message, the file statistics, recent subjects | does the message match the commit? |
+| `odin` | changed Odin procedures with package context | can allocations be avoided safely and overridden through parameters, are entry points thin, and does one `cli` package own argument parsing? |
 
 The candidate list the `duplication` job judges is built by parsing the repository, not
 by searching it. A pattern over lines misses an indented constant inside a block, which
@@ -54,10 +55,9 @@ is kept out of the packet and measured by a static check instead.
 
 ## The static checks
 
-Twenty-nine checks run before anything is asked of a provider, and whether or not one can
-be asked. Seven measure the commit message; one measures the diff's shape; one measures
-the change against the repository's history; two hold the review to itself; eighteen
-measure the code the change adds. Then the repository's own compilers and analysers run,
+Deterministic checks run before anything is asked of a provider, and whether or not one can
+be asked. They measure the commit message, the diff's shape, repository history,
+the review's own mechanisms, and the code the change adds. Then the repository's own compilers and analysers run,
 each with its strictest settings and asked for JSON, over the units the change touched.
 Static analysis is cheaper than a reading, so wherever a rule turned out to be a
 comparison rather than a judgement it was moved here — three naming rules and the
@@ -128,6 +128,10 @@ noise on any struct not on a hot path.
 | `error-swallowed` | added lines against the dropping shapes of each language | is this `_ = err`, an empty `catch`, an `except` that passes? |
 | `odin-destroy-incomplete` | each Odin struct in a package the change touches, its fields, and the destroy, free or deinit procedure that takes it | does the release hand every owning field — string, slice, map, dynamic array, pointer, a struct with its own release — to some call? Only a field or a release the change adds a line to is judged; `free_all` or an arena destroy spares the struct |
 | `odin-temp-in-loop` | each added Odin call inside a `for` loop, parsed with Odin's own parser, and the resets in the loops around it | does the loop take from `context.temp_allocator` every iteration — a `fmt.tprintf`, a call handed it, `context.allocator` set to it — with no guard, begin or `free_all` in any enclosing loop to give it back? Calls into other procedures are not followed |
+| `odin-allocator-parameter` | changed Odin procedures calling new, make on literal container types, or calls passed a context allocator | does the signature expose an allocator parameter so callers can override allocation? Hidden callee contracts and bypassed parameters belong to the odin inference job |
+| `odin-main-location` | added Odin package declarations | is a main package outside the repository's cmd subtree? |
+| `odin-cli-package` | added cli package declarations and all repository package directories | does more than one directory declare package cli? |
+| `odin-cli-parsing` | added core:flags.parse calls, resolved through unshadowed import aliases | is command-line parsing outside package cli? |
 | `new-symbol-unreferenced` | each new declaration's name as a whole word over every text file in the tree | does anything refer to it but its own line? A doc comment does not count |
 | `code-without-tests` | the added lines by file kind, and the tree's test files | does a change of 50 or more code lines touch no test, in a repository that keeps them? |
 
@@ -416,7 +420,7 @@ It also pins sampling, which the others cannot: a loop between two models conver
 faster when one of them answers the same way twice.
 
 Measured, one job over a seven-file commit through `claude`: **$0.19 at the default
-model**, $0.06 at the smallest. A whole change, all five jobs, is a few times that. The
+model**, $0.06 at the smallest. A whole change runs several jobs and costs a few times that. The
 same packet through `api` costs a fraction of a cent — the difference is the
 assistant's own harness, which these jobs do not use. Convenience has a price and this
 is it.
