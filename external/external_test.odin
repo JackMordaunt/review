@@ -39,7 +39,10 @@ fixture :: proc(t: ^testing.T) -> string {
 	testing.expect(t, ok)
 	testing.expect(t, os.write_entire_file(file, "# After\n") == nil)
 	git.run(dir, {"add", "test.md"})
-	return dir
+	// Use the same repository spelling as prepare and inspect for session paths.
+	root, resolved := repository(dir)
+	testing.expect(t, resolved)
+	return root
 }
 
 @(test)
