@@ -10,6 +10,7 @@ package frontend
 import "core:encoding/json"
 import "core:strings"
 import "jm:sh"
+import "../discovery"
 
 // Decl is one declaration as a sidecar reports it. Kinds are func, type,
 // field, const, var and value. A test is what the language's test runner
@@ -145,8 +146,8 @@ sidecar_for :: proc(path: string, shell := "") -> (sidecar: Sidecar, covered: bo
 }
 
 // installed reports whether a sidecar can be run.
-installed :: proc(sidecar: Sidecar) -> bool {
-	_, found := sh.which(binary(sidecar), context.temp_allocator)
+installed :: proc(sidecar: Sidecar, allocator := context.temp_allocator) -> bool {
+	_, found := discovery.find(binary(sidecar), allocator)
 	return found
 }
 
@@ -171,7 +172,7 @@ scan :: proc(
 		return grep_scan(sidecar, files, allocator)
 	}
 	argv := make([]string, len(files) + 1, context.temp_allocator)
-	argv[0] = binary(sidecar)
+	argv[0], _ = discovery.find(binary(sidecar), context.temp_allocator)
 	copy(argv[1:], files)
 	r := sh.exec(argv, allocator = allocator)
 	if !r.ok && len(r.stdout) == 0 {

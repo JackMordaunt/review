@@ -4,9 +4,9 @@ import "core:encoding/json"
 import "core:os"
 import "core:slice"
 import "core:strings"
-import "jm:sh"
 
 import "../finding"
+import "../discovery"
 
 is_go :: proc(path, shell: string) -> bool {
 	return strings.has_suffix(path, ".go")
@@ -161,22 +161,27 @@ go_vet := Analyser {
 	binary = "go",
 	ready = proc(tree_dir: string) -> (bool, string) {return is_go_ready(tree_dir)},
 	run = proc(tree_dir, root: string, files: []string) -> ([]Diagnostic, string) {
-		pkgs := go_packages(tree_dir, files)
-		if len(pkgs) == 0 {
-			return nil, ""
-		}
-		args := make([dynamic]string, context.temp_allocator)
-		append(&args, "vet", "-json")
-		if tool, found := sh.which(vet_tool, context.temp_allocator); found {
-			append(&args, strings.concatenate({"-vettool=", tool}, context.temp_allocator))
-		}
-		append(&args, ..pkgs)
+		args := go_vet_arguments(tree_dir, files)
+		if len(args) == 0 {return nil, ""}
 		out, err := execute(tree_dir, "go", args[:], context.temp_allocator)
 		if err != "" {
 			return nil, err
 		}
 		return parse_go_vet(tree_dir, out), ""
 	},
+}
+
+// go_vet_arguments owns argument allocation outside the analyser's fixed callback ABI.
+go_vet_arguments :: proc(tree_dir: string, files: []string, allocator := context.temp_allocator) -> []string {
+	pkgs := go_packages(tree_dir, files)
+	if len(pkgs) == 0 {return nil}
+	args := make([dynamic]string, allocator)
+	append(&args, "vet", "-json")
+	if tool, found := discovery.find(vet_tool, allocator); found {
+		append(&args, strings.concatenate({"-vettool=", tool}, allocator))
+	}
+	for pkg in pkgs {append(&args, strings.clone(pkg, allocator))}
+	return args[:]
 }
 
 // Vet_Finding is one thing one of vet's analysers said.

@@ -115,6 +115,8 @@ and keep borrowed strings within the buffer's lifetime.
 review                          the staged change
 review HEAD^..HEAD              the last commit
 review --json                   one JSON object, for an agent
+review --repo "/path/to/repo"    review from outside the repository
+review doctor --json            local paths and capability diagnostics
 review --show                   what each job would be sent, and what the checks found
 review --fresh                  ask again rather than replay the cache
 review --exit-code              exit 1 when a must-fix finding stands, for a hook
@@ -131,6 +133,13 @@ review update                   fetch the latest release
 
 Flags go before the revision. `--provider` and `--model` pick who answers;
 `REVIEW_PROVIDER` and `REVIEW_MODEL` set the defaults.
+
+`--json` keeps progress on stderr and returns a single error object for setup
+failures, preserving the command's exit code. `doctor --json` reports the canonical
+repository root, executable paths, and API credential presence without printing
+credentials or probing authentication. Shipped sidecars are found beside the
+review executable first, then on PATH. Run `python3 tests/cli.py build/review`
+after building to check these contracts without a provider or network.
 
 ## Give it to your agents
 

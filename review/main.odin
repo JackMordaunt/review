@@ -16,6 +16,7 @@ import "jm:debug"
 import "../analyser"
 import "../bench"
 import "../cache"
+import "../cli"
 import "../change"
 import "../check"
 import "../finding"
@@ -27,40 +28,15 @@ import "../report"
 import "../reviewer"
 import "../tree"
 
-usage :: `review reads a change the way several narrow readers would.
-
-usage: review [flags] [rev]      the staged change, or a revision range
-       review rules [<rule>]     the deterministic checks, or one of them
-       review rules -dismissed   the dismissals in the tree, per rule
-       review hook [install]     the commit-msg hook, printed or installed
-       review agent              what an agent's instructions should say
-       review bench [-n N] [-author A] [-rule R] [--fresh] [root]
-                                 the checks' fire rate over recent commits
-       review version            which release this is
-       review update             fetch the latest release and replace these binaries
-
-  --json           Report findings as JSON, for an agent rather than a person.
-  --verbose        Show what each job read and what it cost.
-  --show           Print what each job would be sent and stop, without asking anything.
-  --no-verify      Skip the second reading that checks what each job reported.
-  --fresh          Ask the provider even where the answer cache holds this exact question.
-  --exit-code      Exit 1 when a must-fix finding stands, so a hook can refuse the change.
-  --message-file f Read the commit message from this file, as a commit-msg hook is given it.
-  --baseline f     A previous --json report; each finding is then new, persisting or resolved against it.
-  --jobs a,b       Run only these jobs, comma separated.
-  --provider p     Who answers: chain (probe the default order), claude, grok, pi, api, or command.
-  --model m        Which model, in whatever form the provider names them.
-`
 
 // The debug packages are wired in under ODIN_DEBUG below; the release
 // build still names them, so the import stands in every configuration.
 _ :: debug.Allocator
 _ :: trace.assertion_failure_proc
 
-Flags :: struct {
-	as_json, verbose, show, no_verify, fresh, exit_code:  bool,
-	only, which, model, rev, message_file, baseline_path: string,
-}
+Flags :: cli.Flags
+parse :: cli.parse
+json_failure :: cli.json_failure
 
 main :: proc() {
 	// A debug build sets trace's assertion handler, and with
@@ -112,75 +88,13 @@ dispatch :: proc() -> int {
 			return run_update()
 		}
 	}
-	flags, ok := parse(os.args[1:])
-	if !ok {
+	request := cli.read(os.args[1:])
+	if !request.ok {
+		json_failure(request.flags.as_json, "arguments", "invalid command arguments")
 		return 2
 	}
-	return run(flags)
-}
-
-// parse reads the flags. A flag that takes a value takes the next argument
-// or the part after its equals sign.
-parse :: proc(args: []string) -> (flags: Flags, ok: bool) {
-	flags.which = os.get_env("REVIEW_PROVIDER", context.temp_allocator)
-	if flags.which == "" {
-		flags.which = "chain"
-	}
-	flags.model = os.get_env("REVIEW_MODEL", context.temp_allocator)
-	i := 0
-	for i < len(args) {
-		arg := args[i]
-		name, value := arg, ""
-		if eq := strings.index_byte(arg, '='); eq >= 0 && strings.has_prefix(arg, "-") {
-			name, value = arg[:eq], arg[eq + 1:]
-		}
-		take := proc(args: []string, i: ^int, value: string) -> string {
-			if value != "" {
-				return value
-			}
-			if i^ + 1 < len(args) {
-				i^ += 1
-				return args[i^]
-			}
-			return ""
-		}
-		switch name {
-		case "--json", "-json":
-			flags.as_json = true
-		case "--verbose", "-verbose":
-			flags.verbose = true
-		case "--show", "-show":
-			flags.show = true
-		case "--no-verify", "-no-verify":
-			flags.no_verify = true
-		case "--fresh", "-fresh":
-			flags.fresh = true
-		case "--exit-code", "-exit-code":
-			flags.exit_code = true
-		case "--jobs", "-jobs":
-			flags.only = take(args, &i, value)
-		case "--provider", "-provider":
-			flags.which = take(args, &i, value)
-		case "--model", "-model":
-			flags.model = take(args, &i, value)
-		case "--message-file", "-message-file":
-			flags.message_file = take(args, &i, value)
-		case "--baseline", "-baseline":
-			flags.baseline_path = take(args, &i, value)
-		case "-h", "--help", "-help":
-			fmt.print(usage)
-			return flags, false
-		case:
-			if strings.has_prefix(arg, "-") {
-				fmt.eprintfln("review: unknown flag %s", arg)
-				fmt.eprint(usage)
-				return flags, false
-			}
-			flags.rev = arg
-		}
-		i += 1
-	}
-	return flags, true
+	if request.kind == .Doctor {return cli.doctor(request.flags)}
+	return run(request.flags)
 }
 
 // run is the review: gather, read, measure, judge, report. It returns the
@@ -189,22 +103,27 @@ run :: proc(flags: Flags) -> int {
 	cwd, cwd_err := os.get_working_directory(context.temp_allocator)
 	if cwd_err != nil {
 		fmt.eprintln("review: no working directory")
+		json_failure(flags.as_json, "repository", "no working directory")
 		return 2
 	}
+	if flags.repo != "" {cwd = flags.repo}
 	root, in_repo := git.toplevel(cwd)
 	if !in_repo {
 		fmt.eprintln("review: not in a git repository")
+		json_failure(flags.as_json, "repository", "not in a git repository")
 		return 2
 	}
 	c, gathered := change.gather(flags.rev, root)
 	if !gathered {
 		fmt.eprintfln("review: git could not describe %q", flags.rev)
+		json_failure(flags.as_json, "revision", fmt.tprintf("git could not describe %q", flags.rev))
 		return 1
 	}
 	if flags.message_file != "" {
 		message, read := change.read_message(flags.message_file)
 		if !read {
 			fmt.eprintfln("review: reading the message: %s", flags.message_file)
+		json_failure(flags.as_json, "message", "could not read commit message")
 			return 1
 		}
 		c.message = message
@@ -221,11 +140,13 @@ run :: proc(flags: Flags) -> int {
 	jobs, job_err := job.chosen(flags.only)
 	if job_err != "" {
 		fmt.eprintfln("review: %s", job_err)
+		json_failure(flags.as_json, "jobs", job_err)
 		return 2
 	}
 	t, at_ok := tree.at(root, flags.rev)
 	if !at_ok {
 		fmt.eprintfln("review: could not materialise %q", flags.rev)
+		json_failure(flags.as_json, "revision", "could not materialise revision")
 		return 1
 	}
 	defer tree.close(t)
@@ -240,6 +161,10 @@ run :: proc(flags: Flags) -> int {
 	_, ranged := tree.ends(flags.rev)
 	append(&static, ..analyser.check(&c, t, ranged))
 
+	if flags.show && flags.as_json {
+		json_failure(true, "arguments", "--show cannot be combined with --json")
+		return 2
+	}
 	if flags.show {
 		for j in jobs {
 			pieces := job.parts(j, &c, context.temp_allocator)
@@ -275,7 +200,7 @@ run :: proc(flags: Flags) -> int {
 		return 0
 	}
 	if flags.verbose {
-		fmt.printfln(
+		fmt.eprintfln(
 			"reviewing %d files, %d new names, %d tests, %d comments",
 			len(c.files),
 			len(c.symbols),
@@ -287,10 +212,11 @@ run :: proc(flags: Flags) -> int {
 	who, picked, provider_err := choose(flags)
 	if provider_err != "" {
 		fmt.eprintfln("review: %s", provider_err)
+		json_failure(flags.as_json, "provider", provider_err)
 		return 1
 	}
 	if flags.verbose {
-		fmt.printfln("asking %s", picked)
+		fmt.eprintfln("asking %s", picked)
 	}
 	// The cache records what each ask answered, so that a re-run of a
 	// part of the change that did not change replays it instead of
@@ -321,6 +247,7 @@ run :: proc(flags: Flags) -> int {
 		b, cmp_err := report.compare(flags.baseline_path, kept)
 		if cmp_err != "" {
 			fmt.eprintfln("review: %s", cmp_err)
+		json_failure(flags.as_json, "baseline", cmp_err)
 			return 1
 		}
 		against = b
@@ -348,6 +275,7 @@ run :: proc(flags: Flags) -> int {
 		out, encoded := report.encode(env)
 		if !encoded {
 			fmt.eprintln("review: the report could not be encoded")
+		json_failure(flags.as_json, "encoding", "report could not be encoded")
 			return 1
 		}
 		fmt.println(out)

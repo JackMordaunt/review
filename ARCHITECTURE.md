@@ -7,7 +7,9 @@ How `review` works, for people changing it or arguing with a finding. The
 
 | path | what it is |
 |------|------------|
-| `review/` | the command: flags, subcommands, `version` and `update` |
+| `review/` | the executable, review orchestration, `version` and `update` |
+| `cli/` | invocation parsing, typed requests and local doctor diagnostics |
+| `discovery/` | shipped sibling executables, then executable PATH fallback |
 | `change/` | the change: its diff, its message, and what each file adds |
 | `tree/` | the repository as it stands at the end of the change |
 | `git/` | the questions asked of the git program: the diff, the history, one archive |

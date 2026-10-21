@@ -194,12 +194,12 @@ read :: proc(t: ^Task) {
 		append(&t.result.skipped, strings.clone(t.j.name))
 		sync.mutex_unlock(t.lock)
 		if t.r.verbose {
-			fmt.printfln("  %-12s nothing to read", t.j.name)
+			fmt.eprintfln("  %-12s nothing to read", t.j.name)
 		}
 		return
 	}
 	if t.r.verbose && len(t.pieces) > 1 {
-		fmt.printfln("  %-12s asked in %d parts", t.j.name, len(t.pieces))
+		fmt.eprintfln("  %-12s asked in %d parts", t.j.name, len(t.pieces))
 	}
 	for piece, i in t.pieces {
 		user := t.j.subject(piece, context.temp_allocator)
@@ -313,7 +313,7 @@ answered :: proc(
 	}
 	if hit, replayed := cache.get(r.cache, r.name, system, user); replayed {
 		if r.verbose {
-			fmt.printfln("  %-12s replayed", r.name)
+			fmt.eprintfln("  %-12s replayed", r.name)
 		}
 		return hit, ""
 	}
@@ -336,10 +336,10 @@ spent :: proc(r: ^Reviewer, name: string, answer: provider.Answer) {
 		return
 	}
 	if answer.replayed {
-		fmt.printfln("  %-12s replayed", name)
+		fmt.eprintfln("  %-12s replayed", name)
 		return
 	}
-	fmt.printfln(
+	fmt.eprintfln(
 		"  %-12s %d in, %d out, %d cached, $%.4f",
 		name,
 		answer.tokens_in,
