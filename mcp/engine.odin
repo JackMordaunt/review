@@ -15,6 +15,7 @@ run :: proc(repo: string, allocator := context.allocator) -> int {
 	}
 	root, ok := git.toplevel(repo)
 	if !ok {fmt.eprintln("review mcp: repository unavailable:", root); return 2}
+	if err := external.capture_engine(); err != "" {fmt.eprintln("review mcp:", err); return 2}
 	repository = root
 	s := Session {
 		handler = call_engine,

@@ -141,3 +141,36 @@ invalid_tool_arguments_are_protocol_errors :: proc(t: ^testing.T) {
 	}
 	for input in ([]string{`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"unknown","arguments":{}}}`, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"review_prepare","arguments":{"repo":"/tmp"}}}`, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"review_report","arguments":{}}}`, `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"review_submit","arguments":{"version":true}}}`}) {testing.expect(t, strings.contains(process(&s, input), `"code":-32602`), input)}
 }
+
+@(test)
+response_allocator_override :: proc(t: ^testing.T) {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	defer mem.tracking_allocator_destroy(&track)
+	allocator := mem.tracking_allocator(&track)
+	failure := error_response(json.Integer(1), -32600, "fixture", allocator = allocator)
+	owned := track.current_memory_allocated > 0
+	testing.expect(t, owned, "error response must use the supplied allocator")
+	if owned {delete(failure, allocator)}
+	reply := result_response(json.Integer(2), json.Null(nil), allocator = allocator)
+	owned = track.current_memory_allocated > 0
+	testing.expect(t, owned, "result response must use the supplied allocator")
+	if owned {delete(reply, allocator)}
+	testing.expect(t, track.current_memory_allocated == 0)
+}
+
+@(test)
+process_allocator_override :: proc(t: ^testing.T) {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	defer mem.tracking_allocator_destroy(&track)
+	allocator := mem.tracking_allocator(&track)
+	s: Session
+	for input in ([]string{`{"jsonrpc":"2.0","id":true,"method":"ping"}`, `{"jsonrpc":"2.0","id":3,"method":"ping"}`}) {
+		response := process(&s, input, allocator = allocator)
+		owned := track.current_memory_allocated > 0
+		testing.expect(t, owned, "process must return storage owned by its supplied allocator")
+		if owned {delete(response, allocator)}
+	}
+	testing.expect(t, track.current_memory_allocated == 0)
+}

@@ -43,20 +43,20 @@ error_response :: proc(
 ) -> string {
 	context.allocator = allocator
 	return encode(struct {
-		jsonrpc: string,
-		id:      json.Value,
-		error:   struct {
-			code:    int,
-			message: string,
-		},
-	}{"2.0", id, {code, message}})
+			jsonrpc: string,
+			id:      json.Value,
+			error:   struct {
+				code:    int,
+				message: string,
+			},
+		}{"2.0", id, {code, message}}, allocator = allocator)
 }
 result_response :: proc(id, result: json.Value, allocator := context.temp_allocator) -> string {
 	context.allocator = allocator
 	return encode(struct {
-		jsonrpc:    string,
-		id, result: json.Value,
-	}{"2.0", id, result})
+			jsonrpc:    string,
+			id, result: json.Value,
+		}{"2.0", id, result}, allocator = allocator)
 }
 parse :: proc(s: string, allocator := context.temp_allocator) -> (v: json.Value, ok: bool) {
 	if !utf8.valid_string(s) || trailing_comma(s) {return v, false}
@@ -69,68 +69,77 @@ parse :: proc(s: string, allocator := context.temp_allocator) -> (v: json.Value,
 str :: proc(v: json.Value) -> string {s, _ := v.(string); return s}
 obj :: proc(v: json.Value) -> (json.Object, bool) {o, ok := v.(json.Object); return o, ok}
 
+is_valid_id :: proc(id: json.Value) -> bool {
+	#partial switch _ in id {
+	case string, i64:
+		return true
+	}
+	return false
+}
+
 // process returns no response for notifications. It owns no transport state.
-process :: proc(s: ^Session, line: string, allocator := context.allocator) -> string {
+process :: proc(s: ^Session, line: string, allocator := context.temp_allocator) -> string {
 	context.allocator = allocator
 	arena: virtual.Arena
 	if virtual.arena_init_growing(&arena) !=
-	   nil {return error_response(json.Null(nil), -32603, "Out of memory")}
+	   nil {return error_response(json.Null(nil), -32603, "Out of memory", allocator = allocator)}
 	defer virtual.arena_destroy(&arena)
 	context.allocator = virtual.arena_allocator(&arena)
 	null: json.Value = json.Null(nil)
-	if len(line) > MAX_FRAME {return error_response(null, -32700, "frame exceeds 16 MiB")}
+	if len(line) >
+	   MAX_FRAME {return error_response(null, -32700, "frame exceeds 16 MiB", allocator = allocator)}
 	v, valid := parse(line)
-	if !valid {return error_response(null, -32700, "Parse error")}
+	if !valid {return error_response(null, -32700, "Parse error", allocator = allocator)}
 	o, object_ok := obj(v)
-	if !object_ok {return error_response(null, -32600, "Invalid Request")}
+	if !object_ok {return error_response(null, -32600, "Invalid Request", allocator = allocator)}
 	id, has_id := o["id"]
-	if has_id {
-		#partial switch _ in id {
-		case string, i64:
-		case:
-			return error_response(null, -32600, "Invalid request ID")
-		}
-	}
+	if has_id &&
+	   !is_valid_id(
+			   id,
+		   ) {return error_response(null, -32600, "Invalid request ID", allocator = allocator)}
 	method, method_ok := o["method"].(string)
 	if str(o["jsonrpc"]) != "2.0" ||
-	   !method_ok {return error_response(null, -32600, "Invalid Request")}
+	   !method_ok {return error_response(null, -32600, "Invalid Request", allocator = allocator)}
 	if !has_id {
 		if method == "notifications/initialized" && s.initialized {s.ready = true}
 		// Serialized engine operations finish atomically. Cancellation notifications
 		// for completed/unknown IDs require no response and have no state effects.
 		return ""
 	}
-	if method == "ping" {return result_response(id, json.Object{})}
+	if method == "ping" {return result_response(id, json.Object{}, allocator = allocator)}
 	params, params_ok := obj(o["params"])
 	if method == "initialize" {
-		if s.initialized {return error_response(id, -32600, "Already initialized")}
+		if s.initialized {return error_response(id, -32600, "Already initialized", allocator = allocator)}
 		if !params_ok ||
 		   str(params["protocolVersion"]) ==
-			   "" {return error_response(id, -32602, "protocolVersion required")}
+			   "" {return error_response(id, -32602, "protocolVersion required", allocator = allocator)}
 		s.initialized = true
 		r, _ := parse(
 			`{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"review","version":"1"},"instructions":"Use review_prepare, answer each pending job with its exact schema, then review_submit. Repeat for verification jobs. Only review_report states completion."}`,
 		)
-		return result_response(id, r)
+		return result_response(id, r, allocator = allocator)
 	}
-	if method == "server/discover" {return error_response(id, -32601, "Method not found")}
-	if !s.ready {return error_response(id, -32000, "Initialize and send notifications/initialized first")}
+	if method ==
+	   "server/discover" {return error_response(id, -32601, "Method not found", allocator = allocator)}
+	if !s.ready {return error_response(id, -32000, "Initialize and send notifications/initialized first", allocator = allocator)}
 	switch method {
 	case "tools/list":
 		if _, present := o["params"];
 		   present &&
 		   (!params_ok ||
-				   len(params) != 0) {return error_response(id, -32602, "Expected empty params")}
-		return result_response(id, json.Object{"tools" = s.tools})
+				   len(params) !=
+					   0) {return error_response(id, -32602, "Expected empty params", allocator = allocator)}
+		return result_response(id, json.Object{"tools" = s.tools}, allocator = allocator)
 	case "tools/call":
 		if !params_ok ||
-		   len(params) != 2 {return error_response(id, -32602, "Expected name and arguments")}
+		   len(params) !=
+			   2 {return error_response(id, -32602, "Expected name and arguments", allocator = allocator)}
 		name, name_ok := params["name"].(string)
 		args, args_ok := obj(params["arguments"])
 		if !name_ok ||
-		   !args_ok {return error_response(id, -32602, "Expected name and object arguments")}
+		   !args_ok {return error_response(id, -32602, "Expected name and object arguments", allocator = allocator)}
 		if invalid := validate_call(name, args);
-		   invalid != "" {return error_response(id, -32602, invalid)}
+		   invalid != "" {return error_response(id, -32602, invalid, allocator = allocator)}
 		result, err := s.handler(name, args, context.allocator)
 		if err != "" {
 			result = json.Object {
@@ -146,9 +155,9 @@ process :: proc(s: ^Session, line: string, allocator := context.allocator) -> st
 				"isError"           = false,
 			}
 		}
-		return result_response(id, result)
+		return result_response(id, result, allocator = allocator)
 	}
-	return error_response(id, -32601, "Method not found")
+	return error_response(id, -32601, "Method not found", allocator = allocator)
 }
 
 // One worker bounds queued mutations to one request. Reader continues servicing
@@ -182,7 +191,12 @@ route :: proc(s: ^Session, w: ^Worker, line: string, allocator := context.alloca
 		if w.busy && encode(p["requestId"]) == w.id {w.cancelled = true}
 		return
 	}
-	if ok && method == "tools/call" && has_id && s.ready {
+	if ok &&
+	   str(o["jsonrpc"]) == "2.0" &&
+	   method == "tools/call" &&
+	   has_id &&
+	   is_valid_id(id) &&
+	   s.ready {
 		if w.busy {fmt.println(error_response(id, -32000, "Another tool call is running")); return}
 		w.busy = true; w.cancelled = false; w.allocator = allocator
 		w.line = strings.clone(line); w.id = strings.clone(encode(id)); w.session = s^
