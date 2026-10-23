@@ -35,6 +35,12 @@ answers_replay_across_opens :: proc(t: ^testing.T) {
 	testing.expect_value(t, got.text, "answer")
 	_, other := get(again, "other", "s", "u")
 	testing.expect(t, !other, "another provider's question is another question")
+	// A second save, into the directory the first one made, keeps both.
+	put(again, "p", "s", "second", provider.Answer{text = "two"})
+	save(again)
+	third, _ := open(false, path)
+	_, persisted := get(third, "p", "s", "second")
+	testing.expect(t, persisted, "a save into an existing directory is written")
 
 	fresh, _ := open(true, path)
 	_, skipped := get(fresh, "p", "s", "u")

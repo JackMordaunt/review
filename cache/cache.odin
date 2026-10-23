@@ -196,7 +196,10 @@ save :: proc(c: ^Cache) {
 	if err != nil {
 		return
 	}
-	if os.make_directory_all(filepath.dir(c.path)) != nil {
+	// make_directory_all answers .Exist for a directory already there
+	// (core/os/path_posix.odin, odin dev-2026-09), which after the first
+	// save is every time; answers_replay_across_opens saves twice.
+	if dir := filepath.dir(c.path); !os.is_dir(dir) && os.make_directory_all(dir) != nil {
 		return
 	}
 	temp := strings.concatenate({c.path, ".tmp"}, context.temp_allocator)
