@@ -30,7 +30,7 @@ doctor :: proc(flags: Flags, allocator := context.allocator) -> int {
 	d := Diagnostic{version = 1, status = "diagnostic", repository = root, repository_available = found,
 		api_credential_present = os.get_env("ANTHROPIC_API_KEY", allocator) != ""}
 	tools := make([dynamic]Tool, allocator)
-	names := []string{"git", "review-go", "review-vet", "odin-review-extract", "claude", "grok", "pi"}
+	names := []string{"git", "review-go", "review-vet", "odin-review-extract", "claude", "grok", "codex", "pi"}
 	for name in names {
 		path, available := discovery.find(name, allocator)
 		append(&tools, Tool{name, path, available})

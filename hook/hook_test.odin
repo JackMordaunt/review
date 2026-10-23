@@ -46,7 +46,7 @@ print_and_agent_text_explain_the_gate :: proc(t: ^testing.T) {
 	out, err := run({})
 	defer delete(out)
 	testing.expect_value(t, err, "")
-	for want in ([]string{"commit-msg", "--exit-code", "PreToolUse", "review agent"}) {
+	for want in ([]string{"commit-msg", "--exit-code", "PreToolUse", "exit 2", "Grok", "review agent"}) {
 		testing.expectf(t, strings.contains(out, want), "%q missing from hook print", want)
 	}
 	for want in ([]string{"review --json", "must-fix", "review:ignore", "--baseline"}) {

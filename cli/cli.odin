@@ -33,7 +33,7 @@ usage: review [flags] [rev]      the staged change, or a revision range
   --message-file f Read the commit message from this file, as a commit-msg hook is given it.
   --baseline f     A previous --json report; each finding is then new, persisting or resolved against it.
   --jobs a,b       Run only these jobs, comma separated.
-  --provider p     Who answers: chain (probe the default order), claude, grok, pi, api, or command.
+  --provider p     Who answers: chain (probe the default order), claude, grok, codex, pi, api, or command.
   --model m        Which model, in whatever form the provider names them.
 `
 

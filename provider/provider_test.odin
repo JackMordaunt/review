@@ -1,5 +1,6 @@
 package provider
 
+import "core:slice"
 import "core:strings"
 import "core:testing"
 
@@ -26,6 +27,15 @@ names_carry_the_model :: proc(t: ^testing.T) {
 		name(Provider{kind = .Grok, model = "grok-4.7"}, context.temp_allocator),
 		"grok/grok-4.7",
 	)
+	testing.expect_value(t, name(Provider{kind = .Codex}, context.temp_allocator), "codex")
+	testing.expect_value(
+		t,
+		name(Provider{kind = .Codex, model = "gpt-5"}, context.temp_allocator),
+		"codex/gpt-5",
+	)
+	c, ok_codex := build("codex", "", context.temp_allocator)
+	testing.expect(t, ok_codex)
+	testing.expect_value(t, c.model, "")
 	g, ok_grok := build("grok", "", context.temp_allocator)
 	testing.expect(t, ok_grok)
 	testing.expect_value(t, g.model, default_grok_model)
@@ -44,12 +54,14 @@ names_carry_the_model :: proc(t: ^testing.T) {
 @(test)
 the_chain_tries_the_assistant_between_api_and_gateway :: proc(t: ^testing.T) {
 	chain := default_chain(context.temp_allocator)
-	testing.expect_value(t, len(chain), 4)
+	testing.expect_value(t, len(chain), 5)
 	testing.expect_value(t, chain[0].provider.kind, Kind.Api)
 	testing.expect_value(t, chain[1].name, "claude/sonnet")
 	testing.expect_value(t, chain[2].provider.kind, Kind.Grok)
 	testing.expect_value(t, chain[2].name, "grok/grok-4.7")
-	testing.expect_value(t, chain[3].provider.kind, Kind.Pi)
+	testing.expect_value(t, chain[3].name, "codex")
+	testing.expect_value(t, chain[3].provider.kind, Kind.Codex)
+	testing.expect_value(t, chain[4].provider.kind, Kind.Pi)
 }
 
 @(test)
@@ -139,4 +151,40 @@ api_requests_and_replies_are_shaped :: proc(t: ^testing.T) {
 	_, err = reply(`{"content":[{"type":"text","text":"hi"}],"usage":{}}`, context.temp_allocator)
 	testing.expect_value(t, err, "the model answered without reporting")
 	testing.expect_value(t, error_of(`{"error":{"message":"bad key"}}`), "bad key")
+}
+
+@(test)
+codex_answers_from_its_last_message :: proc(t: ^testing.T) {
+	events := `{"type":"thread.started","thread_id":"x"}
+{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":2}}
+`
+	answer, err := read_codex(events, `{"findings":[]}`, context.temp_allocator)
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, answer.text, `{"findings":[]}`)
+	testing.expect_value(t, answer.tokens_in, 10)
+	testing.expect_value(t, answer.cached, 4)
+	testing.expect_value(t, answer.tokens_out, 2)
+	failed := `{"type":"error","message":"usage limit"}
+{"type":"turn.failed","error":{"message":"usage limit"}}
+`
+	_, err = read_codex(failed, "", context.temp_allocator, "codex: exit 1: noise")
+	testing.expect_value(t, err, "usage limit")
+	_, err = read_codex("", "", context.temp_allocator, "codex: exit 1: noise")
+	testing.expect_value(t, err, "codex: exit 1: noise")
+	_, err = read_codex("", "  \n", context.temp_allocator)
+	testing.expect_value(t, err, "answered nothing")
+}
+
+@(test)
+grok_asks_from_a_home_of_its_own :: proc(t: ^testing.T) {
+	env := grok_environment("/nonexistent-review-test")
+	homes := 0
+	for kv in env {
+		if strings.has_prefix(kv, "GROK_HOME=/nonexistent-review-test/home") {
+			homes += 1
+		}
+	}
+	testing.expect_value(t, homes, 1)
+	testing.expect(t, slice.contains(env, "GROK_CLAUDE_HOOKS_ENABLED=0"))
+	testing.expect(t, slice.contains(env, "GROK_MEMORY=0"))
 }

@@ -9,6 +9,7 @@ package provider
 
 import "core:encoding/json"
 import "core:fmt"
+import "core:mem/virtual"
 import "core:os"
 import "core:strings"
 import "core:time"
@@ -33,14 +34,15 @@ Kind :: enum {
 	Claude,
 	Pi,
 	Grok,
+	Codex,
 	Api,
 	Command,
 }
 
 // Provider is one way of asking: the coding assistant claude in its
 // non-interactive mode, the assistant pi through one of its upstreams,
-// the grok assistant on the path, the console API directly, or whatever
-// command the environment names.
+// the grok and codex assistants on the path, the console API directly, or
+// whatever command the environment names.
 Provider :: struct {
 	kind:     Kind,
 	model:    string,
@@ -80,6 +82,8 @@ build :: proc(which, model: string, allocator := context.allocator) -> (p: Provi
 			true
 	case "grok":
 		return Provider{kind = .Grok, model = model if model != "" else default_grok_model}, true
+	case "codex":
+		return Provider{kind = .Codex, model = model}, true
 	case "api":
 		return Provider{kind = .Api, model = model if model != "" else default_api_model}, true
 	case "command":
@@ -102,6 +106,11 @@ name :: proc(p: Provider, allocator := context.allocator) -> string {
 		return strings.concatenate({"claude/", p.model}, allocator)
 	case .Grok:
 		return strings.concatenate({"grok/", p.model}, allocator)
+	case .Codex:
+		if p.model == "" {
+			return strings.clone("codex", allocator)
+		}
+		return strings.concatenate({"codex/", p.model}, allocator)
 	case .Pi:
 		parts := make([dynamic]string, context.temp_allocator)
 		append(&parts, "pi")
@@ -146,6 +155,8 @@ ask :: proc(
 		return ask_pi(p, system, user, allocator)
 	case .Grok:
 		return ask_grok(p, system, user, allocator)
+	case .Codex:
+		return ask_codex(p, system, user, allocator)
 	case .Api:
 		return ask_api(p, system, user, findings_tool, allocator)
 	case .Command:
@@ -346,6 +357,10 @@ spoken :: proc(out: string, allocator := context.allocator) -> (Answer, string) 
 // The tool flags leave none callable: these jobs are given everything
 // they may read, and a reader that goes looking for more is answering a
 // different question, with the tree open under the user's permission mode.
+// Observed with grok 1.0.62: it runs the user's own hooks, memory and
+// instructions in every session, and a Stop hook that adds context made it
+// answer twice ("{...}{...}"), so the ask runs from a home of its own that
+// holds only the credential.
 ask_grok :: proc(
 	p: Provider,
 	system, user: string,
@@ -386,11 +401,64 @@ ask_grok :: proc(
 		},
 		"",
 		context.temp_allocator,
+		grok_environment(dir),
 	)
 	if err != "" {
 		return {}, strings.clone(err, allocator)
 	}
 	return read_grok(out, allocator)
+}
+
+// grok_environment is the environment of a grok ask: the caller's, with a
+// home of its own under dir that carries the credential and nothing else,
+// and the discovery of the Claude files, memory and updates turned off.
+// The credential is linked rather than copied so that a refreshed token
+// lands where grok keeps it; a file system that refuses the link gets a copy.
+grok_environment :: proc(dir: string, allocator := context.temp_allocator) -> []string {
+	home := path.join(dir, "home", allocator = allocator)
+	if path.mkdirs(home) == nil {
+		source := path.join(grok_home(allocator), "auth.json", allocator = allocator)
+		target := path.join(home, "auth.json", allocator = allocator)
+		if os.symlink(source, target) != nil {
+			if data, read_err := os.read_entire_file(source, allocator); read_err == nil {
+				_ = os.write_entire_file(target, data)
+			}
+		}
+	}
+	env := make([dynamic]string, allocator)
+	if inherited, err := os.environ(allocator); err == nil {
+		for kv in inherited {
+			if strings.has_prefix(kv, "GROK_HOME=") {
+				continue
+			}
+			append(&env, kv)
+		}
+	}
+	append(
+		&env,
+		strings.concatenate({"GROK_HOME=", home}, allocator),
+		"GROK_MEMORY=0",
+		"GROK_DISABLE_AUTOUPDATER=1",
+		"GROK_CLAUDE_HOOKS_ENABLED=0",
+		"GROK_CLAUDE_RULES_ENABLED=0",
+		"GROK_CLAUDE_AGENTS_ENABLED=0",
+		"GROK_CLAUDE_SKILLS_ENABLED=0",
+		"GROK_CLAUDE_MCPS_ENABLED=0",
+	)
+	return env[:]
+}
+
+// grok_home is where grok keeps its credential: GROK_HOME, else .grok in
+// the user's home.
+grok_home :: proc(allocator := context.temp_allocator) -> string {
+	if h := os.get_env("GROK_HOME", allocator); h != "" {
+		return h
+	}
+	home := os.get_env("HOME", allocator)
+	if home == "" {
+		home = os.get_env("USERPROFILE", allocator)
+	}
+	return path.join(home, ".grok", allocator = allocator)
 }
 
 // Grok_Envelope is the headless JSON object: text, stopReason, usage, and
@@ -434,6 +502,129 @@ read_grok :: proc(out: string, allocator := context.allocator) -> (Answer, strin
 		""
 }
 
+// ask_codex asks the codex assistant on the path, in its non-interactive
+// mode, with whatever credentials it already holds. It is held to a
+// read-only sandbox in an empty directory, with the user's config, hooks
+// and rules left unread, so that it can neither edit nor wander the tree:
+// these jobs are given everything they may read. Codex 0.163.0 has no
+// system prompt flag among its exec options, so the system prompt leads the
+// question. The answer is read from the last-message file, and the events
+// on stdout carry the failure and the cost.
+ask_codex :: proc(
+	p: Provider,
+	system, user: string,
+	allocator := context.allocator,
+) -> (
+	Answer,
+	string,
+) {
+	dir, mk_err := path.temp_dir("review-codex-", context.temp_allocator)
+	if mk_err != nil {
+		return {}, "codex: could not make a working directory"
+	}
+	defer os.remove_all(dir)
+	last := path.join(dir, "last", allocator = context.temp_allocator)
+	args := make([dynamic]string, context.temp_allocator)
+	append(
+		&args,
+		"codex",
+		"exec",
+		"--json",
+		"--ephemeral",
+		"--skip-git-repo-check",
+		"--ignore-user-config",
+		"--ignore-rules",
+		"--sandbox",
+		"read-only",
+		"--cd",
+		dir,
+		"--output-last-message",
+		last,
+	)
+	if p.model != "" {
+		append(&args, "--model", p.model)
+	}
+	append(&args, "-")
+	out, err := shell(
+		args[:],
+		strings.concatenate({system, "\n\n", user}, context.temp_allocator),
+		context.temp_allocator,
+	)
+	// A failed run is told by shell as its exit and the head of the stream,
+	// which held the error event when the usage limit was hit.
+	events := out
+	if err != "" {
+		events = err[max(strings.index_byte(err, '{'), 0):]
+	}
+	text, _ := os.read_entire_file(last, context.temp_allocator)
+	return read_codex(events, string(text), allocator, err)
+}
+
+// Codex_Event is one line of codex's event stream: the failure of a turn,
+// and the usage of a turn that finished.
+Codex_Event :: struct {
+	type:    string `json:"type"`,
+	message: string `json:"message"`,
+	error:   struct {
+		message: string `json:"message"`,
+	} `json:"error"`,
+	usage:   struct {
+		tokens_in:  int `json:"input_tokens"`,
+		tokens_out: int `json:"output_tokens"`,
+		cached:     int `json:"cached_input_tokens"`,
+	} `json:"usage"`,
+}
+
+// read_codex takes the answer out of codex's last message, and the cost out
+// of its event stream. A failed turn is told by the message the stream
+// carries, in preference to the exit shell reports.
+read_codex :: proc(
+	events, text: string,
+	allocator := context.allocator,
+	failure := "",
+) -> (
+	Answer,
+	string,
+) {
+	answer: Answer
+	why := ""
+	// Each event is read into an arena of its own, so that the failure cloned
+	// out of one outlives the reading whichever allocator the caller holds.
+	scratch: virtual.Arena
+	if virtual.arena_init_growing(&scratch) != nil {
+		return {}, strings.clone("codex: could not read the answer", allocator)
+	}
+	defer virtual.arena_destroy(&scratch)
+	rest := events
+	for raw in strings.split_lines_iterator(&rest) {
+		event: Codex_Event
+		if json.unmarshal_string(strings.trim_space(raw), &event, allocator = virtual.arena_allocator(&scratch)) != nil {
+			continue
+		}
+		switch event.type {
+		case "error":
+			why = strings.clone(event.message, allocator)
+		case "turn.failed":
+			why = strings.clone(event.error.message, allocator)
+		case "turn.completed":
+			answer.tokens_in = event.usage.tokens_in
+			answer.tokens_out = event.usage.tokens_out
+			answer.cached = event.usage.cached
+		}
+	}
+	if why != "" {
+		return {}, why
+	}
+	if failure != "" {
+		return {}, strings.clone(failure, allocator)
+	}
+	if strings.trim_space(text) == "" {
+		return {}, strings.clone("answered nothing", allocator)
+	}
+	answer.text = strings.clone(text, allocator)
+	return answer, ""
+}
+
 // ask_command asks whatever the environment names, with the prompt on its
 // input, and reads the answer whole or out of the field named.
 ask_command :: proc(
@@ -463,18 +654,20 @@ ask_command :: proc(
 
 // shell works a command with the prompt on its input, which every
 // assistant here accepts and which keeps a long prompt out of the
-// argument list. A run past the ask timeout is a failed ask.
+// argument list. A run past the ask timeout is a failed ask. env, where
+// given, is the child's whole environment.
 shell :: proc(
 	argv: []string,
 	prompt: string,
 	allocator := context.allocator,
+	env: []string = nil,
 ) -> (
 	out: string,
 	err: string,
 ) {
 	r := sh.exec(
 		argv,
-		{stdin = prompt, timeout = time.Duration(ask_timeout_seconds()) * time.Second},
+		{stdin = prompt, env = env, timeout = time.Duration(ask_timeout_seconds()) * time.Second},
 		allocator,
 	)
 	if r.err != nil {

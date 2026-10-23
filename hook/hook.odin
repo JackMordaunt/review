@@ -120,23 +120,28 @@ text :: proc(allocator := context.allocator) -> string {
 }
 
 // agent_stanza is the hook an agent's harness takes, for the harnesses
-// whose shape is known. Claude Code runs a PreToolUse hook before each
-// tool call; the one below reviews the staged change when the call is a
-// git commit, and a non-zero exit stops the call with the review's output
-// as the reason.
+// whose shape is known. Claude Code and Grok run a PreToolUse hook before
+// each tool call, and take one file shape (Claude Code's hooks and Grok's
+// 10-hooks guide, grok 1.0.62, both say so); the command below reviews the
+// staged change when the call is a git commit. Only exit 2 stops the call,
+// with stderr as the reason, so the review's exit 1 is turned into one and
+// its report moved to stderr.
 agent_stanza :: proc(allocator := context.allocator) -> string {
 	return strings.concatenate(
 		{
 			"# Claude Code: .claude/settings.json (or ~/.claude/settings.json)\n",
+			"# Grok: ~/.grok/hooks/review.json, or the same file as Claude's: Grok reads\n",
+			"# ~/.claude/settings.json too.\n",
 			"# Reviews the staged change before any \"git commit\" the agent runs.\n",
 			"{\n  \"hooks\": {\n    \"PreToolUse\": [{\n      \"matcher\": \"Bash\",\n      \"hooks\": [{\n        \"type\": \"command\",\n",
 			"        \"command\": \"if grep -q 'git commit' ; then ",
 			self(context.temp_allocator),
-			" --exit-code; fi\"\n",
+			" --exit-code >&2 || exit 2; fi\"\n",
 			"      }]\n    }]\n  }\n}\n\n",
-			"# Any other agent: the commit-msg hook above gates every commit it makes\n",
-			"# through git, whatever harness it runs in. Put the output of\n#   review agent\n",
-			"# in its instructions so it knows what the refusal means and how to answer it.\n",
+			"# Any other agent, Codex included: the commit-msg hook above gates every\n",
+			"# commit it makes through git, whatever harness it runs in. Put the output of\n#   review agent\n",
+			"# in its instructions (AGENTS.md for Codex) so it knows what the refusal means\n",
+			"# and how to answer it.\n",
 		},
 		allocator,
 	)

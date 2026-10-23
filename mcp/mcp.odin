@@ -127,12 +127,12 @@ process :: proc(s: ^Session, line: string, allocator := context.temp_allocator) 
 		if _, present := o["params"];
 		   present &&
 		   (!params_ok ||
-				   len(params) !=
+				   param_count(params) !=
 					   0) {return error_response(id, -32602, "Expected empty params", allocator = allocator)}
 		return result_response(id, json.Object{"tools" = s.tools}, allocator = allocator)
 	case "tools/call":
 		if !params_ok ||
-		   len(params) !=
+		   param_count(params) !=
 			   2 {return error_response(id, -32602, "Expected name and arguments", allocator = allocator)}
 		name, name_ok := params["name"].(string)
 		args, args_ok := obj(params["arguments"])
@@ -158,6 +158,14 @@ process :: proc(s: ^Session, line: string, allocator := context.temp_allocator) 
 		return result_response(id, result, allocator = allocator)
 	}
 	return error_response(id, -32601, "Method not found", allocator = allocator)
+}
+
+// param_count counts the parameters a request carries for the server. `_meta` is
+// reserved to the protocol, and grok 1.0.62 sends it with a progress token
+// on tools/list, so it is not a parameter the caller chose.
+param_count :: proc(params: json.Object) -> int {
+	_, has_meta := params["_meta"]
+	return len(params) - 1 if has_meta else len(params)
 }
 
 // One worker bounds queued mutations to one request. Reader continues servicing

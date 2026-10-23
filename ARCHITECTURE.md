@@ -19,7 +19,7 @@ How `review` works, for people changing it or arguing with a finding. The
 | `check/` | the deterministic checks |
 | `analyser/` | the repository's own compilers and linters, kept to the change |
 | `job/`, `criteria/` | the model jobs, and the rules each finding must cite |
-| `provider/` | who answers: the console API, `claude`, `grok`, `pi`, or any command |
+| `provider/` | who answers: the console API, `claude`, `grok`, `codex`, `pi`, or any command |
 | `reviewer/` | runs the jobs, then the second reading that verifies them |
 | `cache/` | the answer cache |
 | `finding/`, `report/` | one finding; the whole report, rendered or as JSON |
@@ -433,9 +433,10 @@ Nothing here cares which model answers. A provider takes a prompt and returns te
 
 | `--provider` | how | credentials |
 |---|---|---|
-| `chain` (default) | probes the configured order — the console API, then `claude` on the path, then `grok`, then `pi` against the local gateway — and the first that answers serves the whole reading | whichever entry it lands on holds |
+| `chain` (default) | probes the configured order — the console API, then `claude` on the path, then `grok`, then `codex`, then `pi` against the local gateway — and the first that answers serves the whole reading | whichever entry it lands on holds |
 | `claude` | the coding assistant on the path, `-p --output-format json` | whatever it already holds |
-| `grok` | the grok assistant on the path, `--prompt-file --output-format json`, tools held to one inert allowlist | whatever it already holds |
+| `grok` | the grok assistant on the path, `--prompt-file --output-format json`, tools held to one inert allowlist, run from a home of its own so the user's hooks and memory stay out | whatever it already holds |
+| `codex` | `codex exec --json --ephemeral --ignore-user-config`, read-only sandbox in an empty directory, the CLI's default model unless `--model` is given | whatever it already holds |
 | `api` | the console API directly | `ant auth login` or `ANTHROPIC_API_KEY` |
 | `pi` | `pi -p --mode json`, which speaks to several providers of its own | its own; name the upstream in `REVIEW_PI_PROVIDER` |
 | `command` | anything at all: `REVIEW_COMMAND` is the command line, `REVIEW_COMMAND_FIELD` the JSON field its answer arrives in | its own |

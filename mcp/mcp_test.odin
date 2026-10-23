@@ -44,6 +44,16 @@ lifecycle_and_ids :: proc(t: ^testing.T) {
 		),
 	)
 	testing.expect(t, process(&s, `{"jsonrpc":"2.0","method":"unknown"}`) == "")
+	// A request may carry a progress token under _meta, as grok 1.0.62 sends.
+	listed := process(&s, `{"jsonrpc":"2.0","id":9,"method":"tools/list","params":{"_meta":{"progressToken":0}}}`)
+	testing.expect(t, strings.contains(listed, `"tools"`))
+	testing.expect(
+		t,
+		strings.contains(
+			process(&s, `{"jsonrpc":"2.0","id":10,"method":"tools/list","params":{"cursor":"x"}}`),
+			`Expected empty params`,
+		),
+	)
 }
 @(test)
 malformed_envelopes :: proc(t: ^testing.T) {
