@@ -14,6 +14,21 @@ Odin_Structure_File :: struct {
 	file:      ^ast.File,
 }
 
+// odin_side_program reports whether dir lies under an examples, tools or
+// scripts directory at any depth: those programs sit beside the product
+// rather than being its entry points, so they need not live under cmd.
+@(private = "file")
+odin_side_program :: proc(dir: string) -> bool {
+	rest := dir
+	for part in strings.split_iterator(&rest, "/") {
+		switch part {
+		case "examples", "tools", "scripts":
+			return true
+		}
+	}
+	return false
+}
+
 // check_odin_structure confines entry points to cmd and the standard CLI
 // parser to one cli package. Unchanged files provide repository context;
 // only a changed package declaration or parser call receives a finding.
@@ -45,7 +60,7 @@ check_odin_structure :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 		clear(&w.calls)
 		pkg := f.file.pkg_decl
 		if line_was_added(s, f.path, pkg.pos.line) {
-			if pkg.name == "main" && !strings.has_prefix(f.path, "cmd/") {
+			if pkg.name == "main" && !strings.has_prefix(f.path, "cmd/") && !odin_side_program(f.dir) {
 				append(
 					out,
 					static(

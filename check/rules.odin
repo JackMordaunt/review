@@ -172,7 +172,7 @@ rules := []Rule {
 	},
 	{
 		"odin-main-location",
-		"an added Odin package main declaration lies outside the repository's cmd subtree",
+		"an added Odin package main declaration lies outside the repository's cmd subtree; programs under an examples, tools or scripts directory at any depth are spared",
 	},
 	{
 		"odin-cli-package",
