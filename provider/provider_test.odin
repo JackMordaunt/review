@@ -4,6 +4,7 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:testing"
+import "jm:path"
 
 @(test)
 names_carry_the_model :: proc(t: ^testing.T) {
@@ -179,9 +180,13 @@ codex_answers_from_its_last_message :: proc(t: ^testing.T) {
 @(test)
 grok_asks_from_a_home_of_its_own :: proc(t: ^testing.T) {
 	env := grok_environment("/nonexistent-review-test")
+	want := strings.concatenate(
+		{"GROK_HOME=", path.join("/nonexistent-review-test", "home", allocator = context.temp_allocator)},
+		context.temp_allocator,
+	)
 	homes := 0
 	for kv in env {
-		if strings.has_prefix(kv, "GROK_HOME=/nonexistent-review-test/home") {
+		if strings.has_prefix(kv, want) {
 			homes += 1
 		}
 	}
