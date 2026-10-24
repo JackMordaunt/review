@@ -32,7 +32,7 @@ Job :: struct {
 
 // all is the readings, in the order their findings are worth having.
 all :: proc(allocator := context.temp_allocator) -> []Job {
-	jobs := make([]Job, 6, allocator)
+	jobs := make([]Job, 7, allocator)
 	jobs[0] = Job {
 		"duplication",
 		#load("../criteria/duplication.md", string),
@@ -44,6 +44,7 @@ all :: proc(allocator := context.temp_allocator) -> []Job {
 	jobs[3] = Job{"claims", #load("../criteria/claims.md", string), claims_subject, true}
 	jobs[4] = Job{"hygiene", #load("../criteria/hygiene.md", string), hygiene_subject, false}
 	jobs[5] = Job{"odin", #load("../criteria/odin.md", string), odin_subject, true}
+	jobs[6] = Job{"stanzas", #load("../criteria/stanzas.md", string), stanzas_subject, true}
 	return jobs
 }
 
@@ -64,7 +65,7 @@ chosen :: proc(only: string, allocator := context.temp_allocator) -> (jobs: []Jo
 		}
 		if !found {
 			return nil, fmt.aprintf(
-				"no job called %q; the jobs are claims, duplication, hygiene, namer, odin, tests",
+				"no job called %q; the jobs are claims, duplication, hygiene, namer, odin, stanzas, tests",
 				want,
 				allocator = allocator,
 			)
@@ -370,31 +371,11 @@ odin_subject :: proc(c: ^change.Change, allocator: runtime.Allocator) -> string 
 		   d.body == "" {
 			continue
 		}
-		in_part := false
-		for file in c.files {
-			if file == d.file {
-				in_part = true
-				break
-			}
-		}
-		if !in_part {
-			continue
-		}
-		added, has_added := c.added[d.file]
-		if !has_added {
-			continue
-		}
-		end := d.line + strings.count(d.body, "\n")
-		touched := false
-		for line in added {
-			if line.line >= d.line && line.line <= end {
-				touched = true
-				break
-			}
-		}
+		end, touched := touched_body(c, d)
 		if !touched {
 			continue
 		}
+		added := c.added[d.file]
 		fmt.sbprintf(&b, "--- %s:%d %s\n", d.file, d.line, d.name)
 		if pkg := c.packages[d.file]; pkg != "" {
 			fmt.sbprintf(&b, "package: %s\n", pkg)
@@ -408,6 +389,62 @@ odin_subject :: proc(c: ^change.Change, allocator: runtime.Allocator) -> string 
 			if line.line >= d.line && line.line <= end {
 				fmt.sbprintf(&b, "%d: %s\n", line.line, line.text)
 			}
+		}
+		strings.write_string(&b, "\n")
+	}
+	return strings.to_string(b)
+}
+
+// touched_body reports whether a function's body, in a file of this part,
+// holds a line the change adds, and the body's last line.
+touched_body :: proc(c: ^change.Change, d: change.Declared) -> (end: int, touched: bool) {
+	in_part := false
+	for file in c.files {
+		if file == d.file {
+			in_part = true
+			break
+		}
+	}
+
+	added, has_added := c.added[d.file]
+	if !in_part || !has_added || d.kind != "func" || d.body == "" {
+		return 0, false
+	}
+	end = d.line + strings.count(d.body, "\n")
+	for line in added {
+		if line.line >= d.line && line.line <= end {
+			return end, true
+		}
+	}
+	return end, false
+}
+
+// stanzas_subject gives the stanzas reader whole changed function bodies,
+// numbered, with a + on each line the change adds: a stanza break is a
+// blank line, so the reader has to see the lines around the added ones.
+stanzas_subject :: proc(c: ^change.Change, allocator: runtime.Allocator) -> string {
+	b := strings.builder_make(allocator)
+	for d in c.index {
+		if !change.is_code_file(d.file) {
+			continue
+		}
+		_, touched := touched_body(c, d)
+		if !touched {
+			continue
+		}
+
+		fmt.sbprintf(&b, "--- %s:%d %s\n", d.file, d.line, d.name)
+
+		lines := c.added[d.file]
+		added := lines[:]
+		n := d.line
+		rest := d.body
+		for text in strings.split_lines_iterator(&rest) {
+			for len(added) > 0 && added[0].line < n {
+				added = added[1:]
+			}
+			fmt.sbprintf(&b, "%d%s %s\n", n, "+" if len(added) > 0 && added[0].line == n else " ", text)
+			n += 1
 		}
 		strings.write_string(&b, "\n")
 	}

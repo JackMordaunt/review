@@ -45,6 +45,7 @@ owns.
 | `claims` | comment lines the change adds, in their blocks, with the code beneath each | does anything support this assertion? |
 | `hygiene` | the commit message, the file statistics, recent subjects | does the message match the commit? |
 | `odin` | changed Odin procedures with package context | can allocations be avoided safely and overridden through parameters, are entry points thin, and does one `cli` package own argument parsing? |
+| `stanzas` | changed function bodies in any language, numbered, added lines marked | does a blank line separate each step, and is a resource's setup and teardown a stanza of its own? |
 
 The Odin reading follows allocator identity through the shown operations.
 A changed context alone does not make a dynamic array or map release invalid:
@@ -135,6 +136,7 @@ noise on any struct not on a hot path.
 | `commented-out-code` | runs of added comment lines, an example the comment indents or fences aside | is this code kept as a comment — two statement-shaped lines, or one beyond doubt? |
 | `debug-leftover` | added lines against the debugging shapes of each language | is this a `debugger`, a `breakpoint()`, a `dbg!`, a `spew.Dump`, a `console.log`, a `set -x`, a `DEBUG` print? |
 | `error-swallowed` | added lines against the dropping shapes of each language | is this `_ = err`, an empty `catch`, an `except` that passes? |
+| `stanza-glued-teardown` | each added `defer` or `errdefer` in Odin, Go or Zig, with the acquisitions and defers around it, and the line after them | does the setup-and-teardown stanza end in a blank line, or does it run straight into the code that uses it? |
 | `odin-destroy-incomplete` | each Odin struct in a package the change touches, its fields, and the destroy, free or deinit procedure that takes it | does the release hand every owning field — string, slice, map, dynamic array, pointer, a struct with its own release — to some call? Only a field or a release the change adds a line to is judged; `free_all` or an arena destroy spares the struct |
 | `odin-temp-in-loop` | each added Odin call inside a `for` loop, parsed with Odin's own parser, and the resets in the loops around it | does the loop take from `context.temp_allocator` every iteration — a `fmt.tprintf`, a call handed it, `context.allocator` set to it — with no guard, begin or `free_all` in any enclosing loop to give it back? Calls into other procedures are not followed |
 | `odin-allocator-parameter` | changed Odin procedures calling new, make on literal container types, or calls passed a context allocator | does the signature expose an allocator parameter so callers can override allocation? Hidden callee contracts and bypassed parameters belong to the odin inference job |

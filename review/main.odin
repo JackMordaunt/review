@@ -359,7 +359,7 @@ print_rules :: proc(args: []string) -> int {
 	description, ok := check.describe(args[0])
 	if !ok {
 		fmt.eprintfln(
-			"review: no job or rule called %q; the jobs are claims, duplication, hygiene, namer, tests",
+			"review: no job or rule called %q; the jobs are claims, duplication, hygiene, namer, odin, stanzas, tests",
 			args[0],
 		)
 		return 1

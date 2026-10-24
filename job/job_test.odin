@@ -15,7 +15,7 @@ dyn :: proc(items: []$T) -> [dynamic]T {
 @(test)
 jobs_carry_their_criteria :: proc(t: ^testing.T) {
 	jobs := all(context.temp_allocator)
-	testing.expect_value(t, len(jobs), 6)
+	testing.expect_value(t, len(jobs), 7)
 	for j in jobs {
 		testing.expectf(t, len(rules(j.criteria)) >= 4, "%s cites too few rules", j.name)
 		testing.expect(t, strings.contains(j.criteria, "- `"))
@@ -316,4 +316,22 @@ odin_subject_reads_changed_bodies_and_respects_parts :: proc(t: ^testing.T) {
 	)
 	empty := change.Change{}
 	testing.expect_value(t, odin_subject(&empty, context.temp_allocator), "")
+}
+
+@(test)
+stanzas_subject_numbers_bodies_and_marks_added_lines :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	c := change.Change {
+		files = {"a.go", "notes.md"},
+		index = {
+			{name = "f", kind = "func", file = "a.go", line = 3, body = "func f() {\n\tx := 1\n\tuse(x)\n}"},
+			{name = "g", kind = "func", file = "a.go", line = 9, body = "func g() {}"},
+		},
+	}
+	c.added = make(map[string][dynamic]change.Diff_Line)
+	c.added["a.go"] = dyn([]change.Diff_Line{{line = 5, text = "\tuse(x)"}})
+	got := stanzas_subject(&c, context.temp_allocator)
+	testing.expect(t, strings.contains(got, "--- a.go:3 f\n"), got)
+	testing.expect(t, strings.contains(got, "4  \tx := 1\n5+ \tuse(x)\n"), got)
+	testing.expect(t, !strings.contains(got, " g\n"), got)
 }

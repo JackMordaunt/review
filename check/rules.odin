@@ -143,6 +143,10 @@ rules := []Rule {
 		"an added line drops an error: _ = err, an empty catch, an except that passes",
 	},
 	{
+		"stanza-glued-teardown",
+		"an added defer in Odin, Go or Zig, with the acquisitions and defers around it, runs straight into code at the same depth with no blank line; setup and teardown are a stanza of their own",
+	},
+	{
 		"odin-destroy-incomplete",
 		"an Odin struct's destroy, free or deinit procedure never hands an owning field — a string, slice, map, dynamic array, pointer or struct with its own destroy — to any call, where the change adds the field or touches the procedure; an arena freed whole spares the struct",
 	},

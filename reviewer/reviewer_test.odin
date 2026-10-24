@@ -54,7 +54,7 @@ findings_are_read_and_jobs_without_a_subject_are_skipped :: proc(t: ^testing.T) 
 	testing.expect_value(
 		t,
 		strings.join(result.skipped[:], ",", context.temp_allocator),
-		"duplication,namer,claims,hygiene,odin",
+		"duplication,namer,claims,hygiene,odin,stanzas",
 	)
 }
 
