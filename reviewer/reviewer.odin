@@ -293,7 +293,7 @@ ask :: proc(
 			return nil, answer, fmt.aprintf("no findings object in the answer, twice: %s", prose)
 		}
 	}
-	decoded, ok := job.decode(raw, j.name, job.rules(j.criteria))
+	decoded, ok := job.decode(raw, j.name, job.rules(j.criteria), j.ceiling)
 	if !ok {
 		return nil, answer, "reading the answer: the findings are not the shape asked for"
 	}

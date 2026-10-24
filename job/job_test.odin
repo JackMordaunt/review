@@ -4,6 +4,7 @@ import "core:strings"
 import "core:testing"
 
 import "../change"
+import "../finding"
 import "../txt"
 
 dyn :: proc(items: []$T) -> [dynamic]T {
@@ -148,7 +149,7 @@ answers_are_decoded_and_held_to_the_criteria :: proc(t: ^testing.T) {
 		"Sure! {\"findings\":[{\"rule\":\"cannot-fail\",\"severity\":\"must-fix\",\"file\":\"a_test.go\",\"line\":4,\"symbol\":\"TestX\",\"message\":\"m\",\"fix\":\"f\"},{\"rule\":\"invented\",\"severity\":\"note\",\"message\":\"n\"}]} thanks",
 	)
 	testing.expect(t, found)
-	got, ok := decode(raw, "tests", allowed, context.temp_allocator)
+	got, ok := decode(raw, "tests", allowed, allocator = context.temp_allocator)
 	testing.expect(t, ok)
 	testing.expect_value(t, len(got), 1)
 	if len(got) == 1 {
@@ -334,4 +335,17 @@ stanzas_subject_numbers_bodies_and_marks_added_lines :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(got, "--- a.go:3 f\n"), got)
 	testing.expect(t, strings.contains(got, "4  \tx := 1\n5+ \tuse(x)\n"), got)
 	testing.expect(t, !strings.contains(got, " g\n"), got)
+}
+
+@(test)
+a_ceiling_lowers_what_a_job_reports :: proc(t: ^testing.T) {
+	allowed := make(map[string]bool, context.temp_allocator)
+	allowed["stanza-glued-loop"] = true
+	raw := `{"findings":[{"rule":"stanza-glued-loop","severity":"must-fix","file":"a.go","line":3},{"rule":"stanza-glued-loop","severity":"note","file":"a.go","line":9}]}`
+	got, ok := decode(raw, "stanzas", allowed, .Consider, context.temp_allocator)
+	testing.expect(t, ok)
+	testing.expect_value(t, len(got), 2)
+	testing.expect_value(t, got[0].severity, finding.Severity.Consider)
+	testing.expect_value(t, got[0].severity_name, "consider")
+	testing.expect_value(t, got[1].severity, finding.Severity.Note)
 }

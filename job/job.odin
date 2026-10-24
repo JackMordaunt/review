@@ -22,12 +22,14 @@ import "../txt"
 // Job is one reading. subject renders the part of the change it reads;
 // an empty subject means there is nothing here for it and the job is
 // skipped. splittable is whether the subject can be read file by file: a
-// subject over the packet cap is then asked in parts.
+// subject over the packet cap is then asked in parts. ceiling is the most
+// severe a finding of the job may be; the zero value caps nothing.
 Job :: struct {
 	name:       string,
 	criteria:   string,
 	subject:    proc(c: ^change.Change, allocator: runtime.Allocator) -> string,
 	splittable: bool,
+	ceiling:    finding.Severity,
 }
 
 // all is the readings, in the order their findings are worth having.
@@ -38,13 +40,16 @@ all :: proc(allocator := context.temp_allocator) -> []Job {
 		#load("../criteria/duplication.md", string),
 		duplication_subject,
 		true,
+		.Must_Fix,
 	}
-	jobs[1] = Job{"tests", #load("../criteria/tests.md", string), tests_subject, true}
-	jobs[2] = Job{"namer", #load("../criteria/namer.md", string), namer_subject, true}
-	jobs[3] = Job{"claims", #load("../criteria/claims.md", string), claims_subject, true}
-	jobs[4] = Job{"hygiene", #load("../criteria/hygiene.md", string), hygiene_subject, false}
-	jobs[5] = Job{"odin", #load("../criteria/odin.md", string), odin_subject, true}
-	jobs[6] = Job{"stanzas", #load("../criteria/stanzas.md", string), stanzas_subject, true}
+	jobs[1] = Job{"tests", #load("../criteria/tests.md", string), tests_subject, true, .Must_Fix}
+	jobs[2] = Job{"namer", #load("../criteria/namer.md", string), namer_subject, true, .Must_Fix}
+	jobs[3] = Job{"claims", #load("../criteria/claims.md", string), claims_subject, true, .Must_Fix}
+	jobs[4] = Job{"hygiene", #load("../criteria/hygiene.md", string), hygiene_subject, false, .Must_Fix}
+	jobs[5] = Job{"odin", #load("../criteria/odin.md", string), odin_subject, true, .Must_Fix}
+	// Spacing is style: a stanza finding advises and never blocks, whatever
+	// severity the model answers with.
+	jobs[6] = Job{"stanzas", #load("../criteria/stanzas.md", string), stanzas_subject, true, .Consider}
 	return jobs
 }
 
@@ -487,11 +492,12 @@ Reported :: struct {
 
 // decode reads a job's answer. A finding that cites no rule from the
 // criteria is dropped: the criteria are what gets tuned, so a job may not
-// invent one.
+// invent one. A finding more severe than ceiling is lowered to it.
 decode :: proc(
 	raw: string,
 	name: string,
 	allowed: map[string]bool,
+	ceiling := finding.Severity.Must_Fix,
 	allocator := context.allocator,
 ) -> (
 	out: []finding.Finding,
@@ -506,13 +512,15 @@ decode :: proc(
 		if !allowed[f.rule] {
 			continue
 		}
+
+		severity := max(finding.parse_severity(f.severity), ceiling)
 		append(
 			&kept,
 			finding.Finding {
 				job = strings.clone(name, allocator),
 				rule = strings.clone(f.rule, allocator),
-				severity = finding.parse_severity(f.severity),
-				severity_name = strings.clone(f.severity, allocator),
+				severity = severity,
+				severity_name = strings.clone(finding.severity_name(severity), allocator),
 				file = strings.clone(f.file, allocator),
 				line = f.line,
 				symbol = strings.clone(f.symbol, allocator),
