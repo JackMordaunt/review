@@ -17,7 +17,7 @@ def run(*args, cwd, env=None, code=0):
 
 
 with tempfile.TemporaryDirectory(prefix="review cli ") as tmp:
-    root = Path(tmp)
+    root = Path(tmp).resolve()
     repo = root / "repo with spaces"
     repo.mkdir()
     def git(*args):
