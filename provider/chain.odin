@@ -47,8 +47,19 @@ pick :: proc(
 	picked: string,
 	err: string,
 ) {
+	// An unset key is the expected way to use a coding assistant instead,
+	// not a fault: the API is passed over without a warning and only named
+	// if nothing else answers. A key too long for the buffer is still set.
+	buf: [512]u8
+	key, key_err := os.lookup_env(buf[:], "ANTHROPIC_API_KEY")
+	has_key := key != "" || key_err == .Buffer_Full
+
 	reasons := make([dynamic]string, context.temp_allocator)
 	for e in chain {
+		if e.provider.kind == .Api && !has_key {
+			append(&reasons, fmt.tprintf("%s: ANTHROPIC_API_KEY is not set", e.name))
+			continue
+		}
 		answer, ask_err := ask(
 			e.provider,
 			"Answer the user's message.",

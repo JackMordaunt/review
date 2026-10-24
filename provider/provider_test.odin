@@ -1,5 +1,6 @@
 package provider
 
+import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:testing"
@@ -187,4 +188,18 @@ grok_asks_from_a_home_of_its_own :: proc(t: ^testing.T) {
 	testing.expect_value(t, homes, 1)
 	testing.expect(t, slice.contains(env, "GROK_CLAUDE_HOOKS_ENABLED=0"))
 	testing.expect(t, slice.contains(env, "GROK_MEMORY=0"))
+}
+
+@(test)
+an_unset_key_is_passed_over_quietly :: proc(t: ^testing.T) {
+	saved := os.get_env("ANTHROPIC_API_KEY", context.temp_allocator)
+	os.unset_env("ANTHROPIC_API_KEY")
+	defer if saved != "" {os.set_env("ANTHROPIC_API_KEY", saved)}
+
+	@(static) warned: int
+	warned = 0
+	chain := []Entry{{"api/claude-sonnet-5", Provider{kind = .Api, model = "claude-sonnet-5"}}}
+	_, _, err := pick(chain, proc(msg: string) {warned += 1}, context.temp_allocator)
+	testing.expect_value(t, warned, 0)
+	testing.expect(t, strings.contains(err, "api/claude-sonnet-5: ANTHROPIC_API_KEY is not set"), err)
 }
