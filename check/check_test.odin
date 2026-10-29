@@ -409,7 +409,7 @@ suppression_added_is_reported :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(findings), 1)
 	if len(findings) == 1 {
 		f := findings[0]
-		testing.expect_value(t, f.severity, finding.Severity.Must_Fix)
+		testing.expect_value(t, f.severity, finding.Severity.Consider)
 		testing.expect(t, strings.contains(f.message, "ico.go:2 (cannot-fail)"))
 		testing.expect(
 			t,
@@ -1408,4 +1408,43 @@ java_tests_are_read :: proc(t: ^testing.T) {
 			body,
 		)
 	}
+}
+
+@(test)
+declaration_only_renames_do_not_delete_tests :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	diff := "--- a/query.test.ts\n+++ b/query.test.ts\n@@ -1,3 +1,3 @@\n-Deno.test(`${q.kind} binds every parameter it names, with a declared type`, () => {\n+Deno.test(`${q.kind} has parameter and type entries for every SQL placeholder`, () => {\n   assertEquals(keys(params), keys(types));\n });\n"
+	c := change.Change {
+		diff = diff,
+	}
+	got := collect(Scope{c = &c}, check_deleted_tests, context.temp_allocator)
+	testing.expect_value(t, len(got), 0)
+	runner_name := change.Change{diff = "--- a/a.test.ts\n+++ b/a.test.ts\n@@ -1 +1 @@\n-it(\"it\", () => assertEquals(1, 1));\n+it(\"registration exists\", () => assertEquals(1, 1));\n"}
+	testing.expect_value(t, len(collect(Scope{c = &runner_name}, check_deleted_tests, context.temp_allocator)), 0)
+	// A changed body cannot borrow the name-only rename exemption.
+	c.diff, _ = strings.replace_all(
+		diff,
+		"   assertEquals(keys(params), keys(types));",
+		"-  assertEquals(keys(params), keys(types));\n+  assert(true);",
+	)
+	got = collect(Scope{c = &c}, check_deleted_tests, context.temp_allocator)
+	testing.expect_value(t, len(got), 1)
+	// Nor can an unrelated file's declaration edit mask the deletion.
+	c.diff, _ = strings.replace_all(
+		diff,
+		"+Deno.test",
+		"--- a/other.test.ts\n+++ b/other.test.ts\n@@ -1 +1 @@\n+Deno.test",
+	)
+	got = collect(Scope{c = &c}, check_deleted_tests, context.temp_allocator)
+	testing.expect(t, len(got) > 0)
+}
+
+@(test)
+unexplained_dismissals_remain_must_fix :: proc(t: ^testing.T) {
+	c := change.Change {
+		diff = "--- a/x.go\n+++ b/x.go\n@@ -1 +1,2 @@\n package x\n+//review:" + "ignore cannot-fail\n",
+	}
+	got := collect(Scope{c = &c}, check_suppression_added, context.temp_allocator)
+	testing.expect_value(t, len(got), 1)
+	if len(got) == 1 {testing.expect_value(t, got[0].severity, finding.Severity.Must_Fix)}
 }

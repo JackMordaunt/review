@@ -443,3 +443,35 @@ keeps_the_indent_a_comment_marker_hides :: proc(t: ^testing.T) {
 	testing.expect_value(t, indent_of("  x"), 2)
 	testing.expect_value(t, indent_of("x"), 0)
 }
+
+@(test)
+artifact_paths_are_classified_without_covering_unknown_source :: proc(t: ^testing.T) {
+	for path in ([]string{"justfile", "Justfile", ".justfile", "Makefile", "Dockerfile", "fix.patch", "fix.diff", "x.odin.fixture", "golden/redirect", "test/golden/output", "output.snap", "output.golden"}) {
+		testing.expectf(t, is_artifact_file(path), "%s needs artifact review", path)
+	}
+	for path in ([]string{"source.zig", "source.odin", "golden.odin", "notgolden/source.zig", "script"}) {
+		testing.expectf(t, !is_artifact_file(path), "%s still needs its language reader", path)
+	}
+}
+
+@(test)
+artifact_changes_leave_unknown_source_as_the_only_parser_gap :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	temp := os.temp_directory(context.temp_allocator) or_else ""
+	root, err := os.make_directory_temp(temp, "review-artifacts-*", context.temp_allocator)
+	testing.expect(t, err == nil)
+	defer os.remove_all(root)
+
+	testing.expect(t, os.make_directory(tree.path(tree.Tree{dir = root}, "golden")) == nil)
+	files := []string{"justfile", "fix.patch", "broken.odin.fixture", "expected.golden", "golden/invalid.go", "golden/invalid.zig", "unknown.language"}
+	for file in files {
+		testing.expect(t, os.write_entire_file(tree.path(tree.Tree{dir = root}, file), transmute([]byte)string("deliberately incomplete input\n")) == nil)
+	}
+	c := Change{files = files}
+	testing.expect(t, read(&c, tree.Tree{dir = root, root = root}, context.temp_allocator))
+	testing.expect_value(t, len(c.uncovered), 1)
+	if len(c.uncovered) == 1 {
+		testing.expect_value(t, c.uncovered[0].file, "unknown.language")
+		testing.expect_value(t, c.uncovered[0].reason, "no reader")
+	}
+}

@@ -93,7 +93,7 @@ rules := []Rule {
 	},
 	{
 		"suppression-added",
-		"the change adds its own review:ignore dismissal, before the readers have run",
+		"the change adds a review:ignore dismissal: reasoned specific rules are consider; blanket or unexplained dismissals are must-fix",
 	},
 	{"test-deleted", "the change deletes a test function that no added test renames"},
 	{"no-stutter", "an exported name's first word is its package: ico.IcoEntry says ico twice"},

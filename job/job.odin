@@ -34,7 +34,7 @@ Job :: struct {
 
 // all is the readings, in the order their findings are worth having.
 all :: proc(allocator := context.temp_allocator) -> []Job {
-	jobs := make([]Job, 7, allocator)
+	jobs := make([]Job, 8, allocator)
 	jobs[0] = Job {
 		"duplication",
 		#load("../criteria/duplication.md", string),
@@ -50,6 +50,7 @@ all :: proc(allocator := context.temp_allocator) -> []Job {
 	// Spacing is style: a stanza finding advises and never blocks, whatever
 	// severity the model answers with.
 	jobs[6] = Job{"stanzas", #load("../criteria/stanzas.md", string), stanzas_subject, true, .Consider}
+	jobs[7] = Job{"artifacts", #load("../criteria/artifacts.md", string), artifacts_subject, false, .Must_Fix}
 	return jobs
 }
 
@@ -70,7 +71,7 @@ chosen :: proc(only: string, allocator := context.temp_allocator) -> (jobs: []Jo
 		}
 		if !found {
 			return nil, fmt.aprintf(
-				"no job called %q; the jobs are claims, duplication, hygiene, namer, odin, stanzas, tests",
+				"no job called %q; the jobs are claims, duplication, hygiene, namer, odin, stanzas, tests, artifacts",
 				want,
 				allocator = allocator,
 			)
@@ -324,7 +325,26 @@ claims_subject :: proc(c: ^change.Change, allocator: runtime.Allocator) -> strin
 			}
 			fmt.sbprintf(&b, "%s:%d  %s\n", comment.file, comment.line, comment.text)
 		}
-		if below := block[len(block) - 1].below; below != "" {
+
+		last := block[len(block) - 1]
+		below := last.below
+		first := ""
+		if below != "" {
+			first = below
+			if end := strings.index_byte(first, '\n'); end >= 0 {first = first[:end]}
+			first = strings.trim_space(first)
+		}
+		for test in c.tests {
+			end := test.line + strings.count(test.body, "\n")
+			if test.file == last.file &&
+			   last.line <= end &&
+			   (last.line >= test.line ||
+					   (first != "" && strings.has_prefix(strings.trim_space(test.body), first))) {
+				below = test.body
+				break
+			}
+		}
+		if below != "" {
 			rest := below
 			for line in strings.split_lines_iterator(&rest) {
 				fmt.sbprintf(&b, "    code: %s\n", line)
@@ -618,4 +638,25 @@ part :: proc(
 		}
 	}
 	return p
+}
+
+// artifacts_subject supplies the actual diff for build instructions and
+// stored inputs/outputs, including source deliberately invalid for a test.
+// The paths constrain this reading; surrounding source changes explain
+// what a fixture or patch is meant to exercise.
+artifacts_subject :: proc(c: ^change.Change, allocator: runtime.Allocator) -> string {
+	b := strings.builder_make(allocator)
+	for file in c.files {
+		if change.is_artifact_file(file) {
+			fmt.sbprintf(&b, "Read artifact: %s\n", file)
+		}
+	}
+	if strings.builder_len(b) == 0 {
+		strings.builder_destroy(&b)
+		return ""
+	}
+
+	strings.write_string(&b, "\nChange (judge only the listed artifact paths):\n")
+	strings.write_string(&b, c.diff)
+	return strings.to_string(b)
 }

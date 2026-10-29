@@ -32,7 +32,8 @@ Check :: #type proc(s: Scope, out: ^[dynamic]finding.Finding)
 
 // checks are the deterministic readings in the order the catalogue lists
 // them: the message, the history, the review's own mechanisms, and then
-// the code the change adds.
+// the code the change adds. Reasoned, specific dismissals advise the
+// reviewer; blanket or unexplained dismissals still block.
 checks :: proc() -> []Check {
 	@(static) all := []Check {
 		check_entropy,

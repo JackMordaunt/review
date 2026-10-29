@@ -154,7 +154,7 @@ ask :: proc(
 	case .Pi:
 		return ask_pi(p, system, user, allocator)
 	case .Grok:
-		return ask_grok(p, system, user, allocator)
+		return ask_grok(p, system, user, findings_tool.schema, allocator)
 	case .Codex:
 		return ask_codex(p, system, user, allocator)
 	case .Api:
@@ -180,6 +180,9 @@ ask_verdict :: proc(
 	}
 	if p.kind == .Api {
 		return ask_api(p, system, user, verdicts_tool, allocator)
+	}
+	if p.kind == .Grok {
+		return ask_grok(p, system, user, verdicts_tool.schema, allocator)
 	}
 	return ask(p, system, user, allocator)
 }
@@ -363,7 +366,7 @@ spoken :: proc(out: string, allocator := context.allocator) -> (Answer, string) 
 // holds only the credential.
 ask_grok :: proc(
 	p: Provider,
-	system, user: string,
+	system, user, schema: string,
 	allocator := context.allocator,
 ) -> (
 	Answer,
@@ -387,6 +390,8 @@ ask_grok :: proc(
 			p.model,
 			"--output-format",
 			"json",
+			"--json-schema",
+			schema,
 			"--system-prompt-override",
 			system,
 			"--verbatim",
@@ -468,6 +473,7 @@ Grok_Envelope :: struct {
 	type:        string `json:"type"`,
 	message:     string `json:"message"`,
 	text:        string `json:"text"`,
+	structured:  json.Value `json:"structuredOutput"`,
 	stop_reason: string `json:"stopReason"`,
 	cost:        f64 `json:"total_cost_usd"`,
 	usage:       struct {
@@ -487,6 +493,12 @@ read_grok :: proc(out: string, allocator := context.allocator) -> (Answer, strin
 	if envelope.type == "error" {
 		why := envelope.message if envelope.message != "" else "grok reported an error"
 		return {}, strings.clone(why, allocator)
+	}
+	// The schema result is authoritative; text may contain narration before it.
+	if object, ok := envelope.structured.(json.Object); ok {
+		encoded, marshal_err := json.marshal(object, allocator = context.temp_allocator)
+		if marshal_err != nil {return {}, "reading the structured Grok answer"}
+		envelope.text = string(encoded)
 	}
 	if strings.trim_space(envelope.text) == "" {
 		why := envelope.stop_reason if envelope.stop_reason != "" else "answered nothing"

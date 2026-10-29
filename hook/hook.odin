@@ -191,8 +191,9 @@ Before committing, run ` +
 - Where a finding is wrong, dismiss it in the source it concerns, on the line
   above, with the reason: ` +
 	"`//review:ignore <rule> <why>`" +
-	`. Never dismiss to pass;
-  a dismissal added by the change under review is itself a must-fix finding.
+	`. Never dismiss to pass.
+  Review reports reasoned, rule-specific dismissals as consider so the person
+  reviewing can assess them; blanket or unexplained dismissals are must-fix.
 - Re-run with ` +
 	"`--baseline previous.json`" +
 	` to see which ids resolved, persist or

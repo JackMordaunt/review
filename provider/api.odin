@@ -1,9 +1,7 @@
 package provider
 
-// The console API is the one provider that can enforce the answer's shape
-// rather than request it, so a malformed answer is impossible here rather
-// than merely unlikely: the job answers through a strict tool, and the
-// tool's input is the answer.
+// The console API enforces the answer's shape through a strict tool.
+// The tool's input is the answer.
 
 import "core:encoding/json"
 import "core:fmt"

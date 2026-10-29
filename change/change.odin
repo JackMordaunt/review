@@ -462,6 +462,9 @@ read :: proc(c: ^Change, t: tree.Tree, allocator := context.allocator) -> bool {
 		}
 	}
 	for name in c.files {
+		if is_artifact_file(name) {
+			continue
+		}
 		if _, covered := frontend.sidecar_for(name, shell_for(c, name));
 		   covered || !tree.exists(t, name) {
 			continue
@@ -491,6 +494,9 @@ read :: proc(c: ^Change, t: tree.Tree, allocator := context.allocator) -> bool {
 	for sidecar in frontend.Sidecar {
 		names := make([dynamic]string, context.temp_allocator)
 		for name in c.files {
+			if is_artifact_file(name) {
+				continue
+			}
 			if s, covered := frontend.sidecar_for(name, shell_for(c, name));
 			   covered && s == sidecar && tree.exists(t, name) {
 				append(&names, name)
@@ -998,6 +1004,27 @@ is_code_file :: proc(path: string) -> bool {
 		}
 	}
 	return true
+}
+
+// is_artifact_file identifies build instructions, patches and stored test
+// inputs/outputs. Their content is read by the artifacts job rather than
+// a declaration parser: a negative fixture may deliberately be invalid
+// source, and a patch is a program expressed in another program's diff.
+// Unknown extensions remain uncovered rather than silently becoming data.
+is_artifact_file :: proc(path: string) -> bool {
+	base := filepath.base(path)
+	if strings.equal_fold(base, "justfile") || strings.equal_fold(base, ".justfile") ||
+	   strings.equal_fold(base, "makefile") || strings.equal_fold(base, "dockerfile") {
+		return true
+	}
+	if strings.has_suffix(path, ".just") || strings.has_suffix(path, ".patch") || strings.has_suffix(path, ".diff") ||
+	   strings.has_suffix(path, ".fixture") || strings.has_suffix(path, ".golden") ||
+	   strings.has_suffix(path, ".snap") {
+		return true
+	}
+	// Golden directories conventionally hold expected output with names
+	// chosen by scenario, including names without an extension.
+	return strings.has_prefix(path, "golden/") || strings.contains(path, "/golden/")
 }
 
 // is_test_file reports a file the test runner reads, in Go's habit.

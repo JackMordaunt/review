@@ -46,6 +46,12 @@ owns.
 | `hygiene` | the commit message, the file statistics, recent subjects | does the message match the commit? |
 | `odin` | changed Odin procedures with package context | can allocations be avoided safely and overridden through parameters, are entry points thin, and does one `cli` package own argument parsing? |
 | `stanzas` | changed function bodies in any language, numbered, added lines marked | does a blank line separate each step, and is a resource's setup and teardown a stanza of its own? |
+| `artifacts` | build instructions, patches, source fixtures and golden outputs, in the bounded change diff | do commands and patches work, and do fixtures and expected outputs preserve the intended test condition? |
+
+The artifact reading receives the complete bounded diff with its target paths
+listed explicitly. It reads embedded source directly, including intentionally
+invalid negative fixtures. It does not treat stored source as a standalone
+compilation target or claim parser coverage for unsupported source languages.
 
 The Odin reading follows allocator identity through the shown operations.
 A changed context alone does not make a dynamic array or map release invalid:
@@ -187,11 +193,12 @@ rate on sampled history: 3.6% of commits at J ≥ 0.7 with at least 5 shared com
 
 The two about gaming the review itself: `suppression-added` reads every dismissal
 comment the change adds — a suppression that the readers have not seen yet, nameable
-before they run — and reports it as must-fix; the report carries no file and so cannot
+before they run — and reports a reasoned, rule-specific dismissal as consider, or a
+blanket or unexplained dismissal as must-fix; the report carries no file and so cannot
 be dismissed itself. The prose that documents the mechanism does not count, and neither
 does a comment in a file no reader reads. `test-deleted` reads the test functions the
 change removes and reports each file that lost one, must-fix; a test that was renamed
-is spared, judged name-word by name-word, and a deleted test that survived as a new
+is spared, judged name-word by name-word or by an unchanged-body declaration edit, and a deleted test that survived as a new
 test elsewhere in the change is spared the same way.
 
 The eighteen about the code read what the language frontends read — declarations with
@@ -437,7 +444,7 @@ Nothing here cares which model answers. A provider takes a prompt and returns te
 |---|---|---|
 | `chain` (default) | probes the configured order — the console API, then `claude` on the path, then `grok`, then `codex`, then `pi` against the local gateway — and the first that answers serves the whole reading | whichever entry it lands on holds |
 | `claude` | the coding assistant on the path, `-p --output-format json` | whatever it already holds |
-| `grok` | the grok assistant on the path, `--prompt-file --output-format json`, tools held to one inert allowlist, run from a home of its own so the user's hooks and memory stay out | whatever it already holds |
+| `grok` | the grok assistant on the path, `--prompt-file --output-format json --json-schema`, tools held to one inert allowlist, run from a home of its own so the user's hooks and memory stay out | whatever it already holds |
 | `codex` | `codex exec --json --ephemeral --ignore-user-config`, read-only sandbox in an empty directory, the CLI's default model unless `--model` is given | whatever it already holds |
 | `api` | the console API directly | `ant auth login` or `ANTHROPIC_API_KEY` |
 | `pi` | `pi -p --mode json`, which speaks to several providers of its own | its own; name the upstream in `REVIEW_PI_PROVIDER` |
@@ -455,10 +462,11 @@ smallest reads the shortlist of duplicates and reports the first one it finds ra
 than all of them — roughly two thirds of the wanted findings, and never both of a pair
 in one reading. That is the one thing this tool is for, so it is not a saving.
 
-Only the `api` provider can enforce the answer's shape, through a strict tool schema.
-The rest are asked for JSON in the prompt and the object is taken out of whatever they
-wrap it in, so every provider answers the same way whether or not it can be held to it.
-It also pins sampling, which the others cannot: a loop between two models converges
+The `api` provider enforces the answer's shape through a strict tool schema; `grok`
+receives the same schema through `--json-schema`, and its `structuredOutput` object
+is preferred over narrated text. Other providers are asked for JSON in the prompt
+and the object is taken out of whatever they wrap it in.
+The `api` provider also pins sampling, which the others cannot: a loop between two models converges
 faster when one of them answers the same way twice.
 
 Measured, one job over a seven-file commit through `claude`: **$0.19 at the default

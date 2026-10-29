@@ -16,7 +16,7 @@ dyn :: proc(items: []$T) -> [dynamic]T {
 @(test)
 jobs_carry_their_criteria :: proc(t: ^testing.T) {
 	jobs := all(context.temp_allocator)
-	testing.expect_value(t, len(jobs), 7)
+	testing.expect_value(t, len(jobs), 8)
 	for j in jobs {
 		testing.expectf(t, len(rules(j.criteria)) >= 4, "%s cites too few rules", j.name)
 		testing.expect(t, strings.contains(j.criteria, "- `"))
@@ -348,4 +348,54 @@ a_ceiling_lowers_what_a_job_reports :: proc(t: ^testing.T) {
 	testing.expect_value(t, got[0].severity, finding.Severity.Consider)
 	testing.expect_value(t, got[0].severity_name, "consider")
 	testing.expect_value(t, got[1].severity, finding.Severity.Note)
+}
+
+@(test)
+artifact_reader_receives_build_code_and_fixture_content :: proc(t: ^testing.T) {
+	c := change.Change {
+		files = {"justfile", "golden/redirect", "x.odin.fixture", "fix.patch", "a.go"},
+		diff = "diff --git a/justfile b/justfile\n+    false\ndiff --git a/x.odin.fixture b/x.odin.fixture\n+broken :: proc() {\n",
+	}
+	got := artifacts_subject(&c, context.temp_allocator)
+	testing.expect(t, strings.contains(got, "Read artifact: justfile"))
+	testing.expect(t, strings.contains(got, "Read artifact: golden/redirect"))
+	testing.expect(t, strings.contains(got, "Read artifact: x.odin.fixture"))
+	testing.expect(t, strings.contains(got, "Read artifact: fix.patch"))
+	testing.expect(t, !strings.contains(got, "Read artifact: a.go"))
+	testing.expect(t, strings.contains(got, c.diff), "the source reaches the reader unchanged")
+	c.files = {"a.go"}
+	testing.expect_value(t, artifacts_subject(&c, context.temp_allocator), "")
+}
+
+@(test)
+claims_receive_the_test_body_below_a_provenance_comment :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	c := change.Change{}
+	c.comments = make([dynamic]change.Located)
+	append(
+		&c.comments,
+		change.Located {
+			file = "live.integration.test.ts",
+			line = 4,
+			text = "Production snapshot checked with BigQuery job job-123.",
+			below = "Deno.test({\nname: \"coverage\",",
+		},
+	)
+	c.tests = make([dynamic]change.Function)
+	body := "Deno.test({\n  name: \"coverage\",\nignore: !enabled,\nasync fn() {\nconst actual = await queryLive();\nassertEquals(actual.hours, 19);\n}\n});"
+	append(
+		&c.tests,
+		change.Function {
+			file = "live.integration.test.ts",
+			line = 5,
+			name = "coverage",
+			body = body,
+		},
+	)
+	subject := claims_subject(&c, context.temp_allocator)
+	testing.expect(t, strings.contains(subject, "code: assertEquals(actual.hours, 19);"))
+	// A neighbouring test is not evidence for an unrelated comment.
+	c.comments[0].below = "const unrelated = 1;"
+	subject = claims_subject(&c, context.temp_allocator)
+	testing.expect(t, !strings.contains(subject, "queryLive"))
 }

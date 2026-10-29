@@ -66,7 +66,7 @@ that loop end.
 - **A second reading.** Each finding is read again with its evidence. One that falls is reported as retracted, with the reason, never silently dropped.
 - **The same answer twice.** Answers are cached by the exact question asked, so an unchanged change replays and costs nothing. Ids hash what a finding is about, not where it sits, so they survive edits.
 - **Progress you can read.** `--baseline last.json` names which findings resolved, which persist, and which are new.
-- **Dismissals live in the source.** `//review:ignore <rule> <why>` beside the code it justifies, not in a config file. One added by the change under review is itself a must-fix.
+- **Dismissals live in the source.** `//review:ignore <rule> <why>` beside the code it justifies, not in a config file. A reasoned, rule-specific addition is reported as consider; blanket or unexplained dismissals are must-fix.
 - **Advisory unless asked.** It never fails a build or blocks a commit until `--exit-code` says it should.
 - **Any model.** The console API, the `claude`, `grok`, `codex`, or `pi` CLIs, or any command that reads a prompt and prints an answer.
 - **Keeps itself current.** `review update` fetches a signed release. It never updates unasked.
@@ -195,7 +195,11 @@ Go and Odin are read through their own parsers, shipped as sidecars.
 TypeScript, JavaScript, Python, Rust, Java and shell are read through
 [ast-grep](https://ast-grep.github.io) when it is installed. Any other
 language still gets its comments, its commit message and its history
-checked.
+checked. The `artifacts` job reads build instructions (`justfile`, Makefile,
+Dockerfile), patches, fixtures and golden outputs from their actual diff,
+including embedded source code. Stored source fixtures are reviewed as test
+inputs rather than compiled as standalone packages. Unsupported source languages
+still report missing parser coverage.
 
 Whatever the repository already uses is run for it, at its strictest, and
 kept to the lines the change touched: `go vet`, `staticcheck`, `odin check`,
@@ -236,8 +240,8 @@ Offline regression checks need Python 3 and Git on a POSIX host:
 just test-desktop
 ```
 
-This builds the release binaries, then runs `tests/cli.py` and
-`tests/desktop.py`. The CLI fixture uses POSIX `printf` and executable permissions;
+This builds the release binaries, then runs `tests/cli.py`, the offline Grok schema contract in
+`tests/grok.py`, and `tests/desktop.py`. The CLI fixture uses POSIX `printf` and executable permissions;
 this recipe does not establish Windows runtime or Desktop UI compatibility.
 The release workflow runs it on native Linux and macOS targets; Windows still
 runs the package and installer tests.

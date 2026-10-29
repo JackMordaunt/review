@@ -96,6 +96,13 @@ grok_answers_from_its_envelope :: proc(t: ^testing.T) {
 	testing.expect_value(t, answer.tokens_in, 10)
 	testing.expect_value(t, answer.cached, 1)
 	testing.expect_value(t, answer.cost, 0.5)
+	structured, structured_err := read_grok(
+		`{"text":"I'll check those findings.","structuredOutput":{"verdicts":[{"index":0,"holds":false,"reason":"the assertion checks the stated contract"}]},"stopReason":"end_turn"}`,
+		context.temp_allocator,
+	)
+	testing.expect_value(t, structured_err, "")
+	testing.expect(t, strings.contains(structured.text, `"verdicts"`))
+	testing.expect(t, !strings.contains(structured.text, "I'll check"))
 	_, err = read_grok(`{"type":"error","message":"Couldn't start session"}`, context.temp_allocator)
 	testing.expect_value(t, err, "Couldn't start session")
 	_, err = read_grok(`{"text":"","stopReason":"max_turn_requests"}`, context.temp_allocator)

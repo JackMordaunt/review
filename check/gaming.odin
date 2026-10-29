@@ -18,19 +18,24 @@ import "../txt"
 rule_id :: `^[a-z][a-z0-9-]*$`
 
 // check_suppression_added reports a change that adds its own dismissal,
-// before the readers have run. The finding names no file, so it cannot
-// be dismissed in turn.
+// before the readers have run. Reasoned, rule-specific dismissals need
+// human review; blanket or unexplained dismissals remain must-fix. The
+// finding names no file, so it cannot be dismissed in turn.
 check_suppression_added :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 	spots := make([dynamic]string, context.temp_allocator)
+	severity := finding.Severity.Consider
 	for file in sorted_keys(s.c.added) {
 		if !change.is_code_file(file) {
 			continue
 		}
 		lines := s.c.added[file]
 		for l in lines {
-			rule, _, found := finding.dismissal(l.text)
+			rule, why, found := finding.dismissal(l.text)
 			if !found || !matches(rule_id, rule) {
 				continue
+			}
+			if rule == "all" || strings.trim_space(why) == "" {
+				severity = .Must_Fix
 			}
 			append(&spots, fmt.tprintf("%s:%d (%s)", file, l.line, rule))
 		}
@@ -42,13 +47,13 @@ check_suppression_added :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 		out,
 		static(
 			"suppression-added",
-			.Must_Fix,
+			severity,
 			fmt.aprintf(
-				"the change adds its own dismissal%s: %s; a dismissal is a decision for the person reviewing the change, and a review that dismisses itself cannot be failed",
+				"the change adds dismissal%s: %s; review the stated reasons before accepting them",
 				plural(len(spots)),
 				strings.join(spots[:], "; ", context.temp_allocator),
 			),
-			"correct what the dismissal covers; a dismissal belongs to the person reviewing, who accepts it deliberately",
+			"check each stated reason against its rule; replace blanket or unexplained dismissals with a specific rule and reason",
 		),
 	)
 }
@@ -127,6 +132,7 @@ java_method       :: `^(?:(?:public|protected|private|static|final|abstract|sync
 // under a name made of the same words is a rename, and is spared.
 check_deleted_tests :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 	spoken := added_test_names(s.c.added, context.temp_allocator)
+	renamed := unchanged_test_renames(s.c.diff)
 	for file in sorted_keys(s.c.removed) {
 		if !is_test_file(file) &&
 		   !strings.has_suffix(file, ".rs") &&
@@ -157,7 +163,8 @@ check_deleted_tests :: proc(s: Scope, out: ^[dynamic]finding.Finding) {
 				continue
 			}
 			seen[name] = true
-			if !covered(name, spoken) {
+			if !covered(name, spoken) &&
+			   !is_test_rename(file, name, renamed) {
 				append(&names, name)
 			}
 		}
@@ -337,4 +344,65 @@ test_words :: proc(name: string, allocator := context.allocator) -> []string {
 		}
 	}
 	return out[:]
+}
+
+// Test_Rename borrows a file and original test name from the diff.
+Test_Rename :: struct {
+	file, name: string,
+}
+
+// unchanged_test_renames recognizes declaration-only edits even when the
+// new name uses different words. Any body edit in the hunk disqualifies it.
+unchanged_test_renames :: proc(diff: string, allocator := context.temp_allocator) -> []Test_Rename {
+	renamed := make([dynamic]Test_Rename, allocator)
+	file, old, new: string
+	edits := 0
+	rest := diff
+
+	// A final hunk boundary flushes the last declaration without copying diff.
+	for {
+		line, more := strings.split_lines_iterator(&rest)
+		if !more {line = "@@"}
+		if strings.has_prefix(line, "@@") || strings.has_prefix(line, "--- ") || strings.has_prefix(line, "diff --git ") {
+			if edits == 2 && same_test_declaration(old, new) {
+				append(&renamed, Test_Rename{file, removed_test_name(old)})
+			}
+			old, new, edits = "", "", 0
+		}
+		if strings.has_prefix(line, "+++ ") {
+			file = strings.trim_prefix(strings.trim_prefix(line, "+++ "), "b/")
+		} else if strings.has_prefix(line, "-") && !strings.has_prefix(line, "--- ") {
+			old = line[1:]
+			edits += 1
+		} else if strings.has_prefix(line, "+") && !strings.has_prefix(line, "+++ ") {
+			new = line[1:]
+			edits += 1
+		}
+		if !more {break}
+	}
+	return renamed[:]
+}
+
+is_test_rename :: proc(file, name: string, renamed: []Test_Rename) -> bool {
+	for rename in renamed {
+		if rename.file == file && rename.name == name {return true}
+	}
+	return false
+}
+
+same_test_declaration :: proc(old, new: string) -> bool {
+	old_name, new_name := removed_test_name(old), removed_test_name(new)
+	if old_name == "" || new_name == "" {return false}
+	a, b := test_name_offset(old, old_name), test_name_offset(new, new_name)
+	return old[:a] == new[:b] && old[a + len(old_name):] == new[b + len(new_name):]
+}
+
+// JS names can repeat runner words, so search after the opening quote.
+test_name_offset :: proc(line, name: string) -> int {
+	trimmed := strings.trim_left(line, " \t")
+	if end, ok := capture_end(js_test_call, trimmed); ok {
+		tail := strings.trim_left(trimmed[end:], " \t")
+		return len(line) - len(tail) + 1
+	}
+	return strings.index(line, name)
 }

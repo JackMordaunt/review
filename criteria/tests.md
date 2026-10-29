@@ -4,17 +4,22 @@ You are given whole test functions the change adds or alters. The question is no
 whether they are tidy. The question is whether they can fail.
 
 - `cannot-fail` — nothing in the body could make the test fail. An assertion that
-  compares a literal to itself, or that only checks a key exists without checking
-  what is under it, tests nothing.
+  compares a literal to itself tests nothing. A key-presence assertion can fail
+  when a required key is absent.
 - `skips-in-normal-conditions` — the test skips when a tool, file or environment
   variable is missing, and that absence is ordinary rather than exceptional. A
-  skipping test reports success having checked nothing. Tests that hold code against
-  an external authority must fail when the authority is unavailable.
+  skipping test reports success having checked nothing. An explicitly opt-in live
+  integration suite may skip when its credentials or external service are absent;
+  once enabled, it must fail if its required authority is unavailable. Do not
+  assume a gate is ordinary or erroneous when its definition is not shown.
 - `name-overclaims` — the name says it checks a property the body does not check.
 - `passes-on-a-stub` — the test would still pass if the function under test returned
   its input unchanged, or returned a zero value. Say which.
 - `asserts-the-shape-not-the-value` — it checks that a field or key is present but
-  never checks its content, so a wrong value passes.
+  never checks its content even though the stated contract promises that value,
+  so a wrong value passes. Presence, membership, schema and binding-key tests
+  intentionally check shape; do not demand value assertions beyond their stated
+  contract. A type entry is not a promise to verify its exact type string.
 
 Report the specific assertion at fault, and what to assert instead. Ignore style,
 naming and table-versus-loop questions entirely.

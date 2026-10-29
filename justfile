@@ -82,6 +82,7 @@ test: deps
 # This exercises the wire protocol, not a Desktop application.
 test-desktop: release
     python3 tests/cli.py build/review{{exe}}
+    python3 tests/grok.py build/review{{exe}}
     python3 tests/desktop.py --binary build/review{{exe}}
 
 # Type-check both Odin binaries for every target, with and without -debug.
